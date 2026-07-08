@@ -1,1 +1,5 @@
+dist
 .barks
+test_coverage
+coverage.out
+coverage.html

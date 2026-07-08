@@ -1,0 +1,128 @@
+MIT License
+
+Copyright (c) 2026 grevents Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Additional Terms
+
+### Third-Party Dependencies
+
+This software may depend on other open-source libraries. Each dependency
+is subject to its own license terms. Users are responsible for complying
+with the licenses of all dependencies.
+
+### Attribution
+
+While not required by this license, we appreciate attribution when using
+this software in your projects. A link back to the repository
+(https://github.com/gourdian25/grevents) or mention in your documentation
+would be greatly appreciated.
+
+### Contributions
+
+By contributing to this project, you agree that your contributions will be
+licensed under the same MIT License that covers the project. All contributors
+retain copyright to their contributions while granting the project and users
+the rights specified in this license.
+
+### Patent Grant
+
+Each contributor grants you a perpetual, worldwide, non-exclusive, no-charge,
+royalty-free, irrevocable (except as stated in this section) patent license to
+make, have made, use, offer to sell, sell, import, and otherwise transfer the
+Software, where such license applies only to those patent claims licensable by
+such contributor that are necessarily infringed by their contribution(s) alone
+or by combination of their contribution(s) with the Software to which such
+contribution(s) was submitted.
+
+### No Trademark License
+
+This license does not grant permission to use the trade names, trademarks,
+service marks, or product names of the copyright holders, except as required
+for reasonable and customary use in describing the origin of the Software.
+
+---
+
+## Contributors
+
+This project is made possible by all the amazing contributors who have
+dedicated their time and expertise. For a complete list of contributors,
+please visit: https://github.com/gourdian25/grevents/graphs/contributors
+
+---
+
+## License Summary
+
+✅ **You CAN:**
+- Use this software for personal projects
+- Use this software for commercial projects
+- Modify the source code
+- Distribute the software
+- Distribute modified versions
+- Sublicense (include in proprietary software)
+- Use privately without sharing changes
+
+❌ **You CANNOT:**
+- Hold the authors liable for damages
+- Use contributors' names for endorsement without permission
+- Expect any warranty or guarantee
+
+📋 **You MUST:**
+- Include the original license and copyright notice
+- Include this MIT License text in distributions
+
+---
+
+## Warranty Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+This means:
+- No guarantee that the software will work for your specific use case
+- No liability for any bugs, security issues, or data loss
+- No obligation to provide support, updates, or fixes
+- Use at your own risk
+
+---
+
+## Questions About This License?
+
+If you have questions about this license or how it applies to your use case:
+
+1. **General MIT License Questions**: Consult with your legal counsel or refer to
+   https://opensource.org/licenses/MIT
+
+2. **Project-Specific Questions**: Open an issue at
+   https://github.com/gourdian25/grevents/issues with the "license" label
+
+3. **Commercial Usage**: This license explicitly allows commercial use. You don't
+   need to ask permission or notify us, but we'd love to hear from you!
+
+---
+
+**Thank you for using grevents! Happy eventing! 🎉**

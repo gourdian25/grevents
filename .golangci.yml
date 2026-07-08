@@ -1,0 +1,24 @@
+version: "2"
+
+linters:
+  # standard = errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  enable:
+    - gosec
+    - misspell
+    - gocritic
+    - revive
+  exclusions:
+    rules:
+      # Test files use large loop counts and test-controlled inputs by
+      # design (conformance suite's flood-subscriber overflow scenarios).
+      - path: _test\.go
+        linters: [gosec, errcheck, gocritic]
+      - path: conformance/conformance\.go
+        linters: [gosec, errcheck, gocritic]
+      - path: example/example\.go
+        linters: [gosec, errcheck, gocritic]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

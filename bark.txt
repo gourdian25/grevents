@@ -1,8 +1,12 @@
 .
+├── CHANGELOG.md
 ├── CLAUDE.md
+├── LICENSE
 ├── Makefile
 ├── README.md
+├── SECURITY.md
 ├── async.go
+├── bench_test.go
 ├── bus.go
 ├── bus_test.go
 ├── conformance/
@@ -14,12 +18,18 @@
 │       └── grevents-plan.md
 ├── docs.go
 ├── errors.go
+├── example/
+│   └── example.go
 ├── go.mod
+├── go.sum
 ├── logger.go
+├── logger_test.go
 ├── middleware_logging.go
 ├── middleware_recovery.go
+├── middleware_test.go
 ├── middleware_tracing.go
 ├── options.go
+├── options_test.go
 ├── race_test.go
 ├── retry.go
 ├── retry_test.go
@@ -27,4 +37,4 @@
 ├── subscriber.go
 └── sync.go
 
-3 directories, 24 files
+4 directories, 33 files

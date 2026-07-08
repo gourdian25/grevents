@@ -1,3 +1,5 @@
+// File: options_test.go
+
 package grevents_test
 
 import (

@@ -151,3 +151,8 @@ tag: guard-version ## Create and push git tag
 .PHONY: release
 release: guard-version tag ## Create release using GoReleaser
 	goreleaser release --clean
+
+.PHONY: goreleaser-check
+goreleaser-check: ## Dry run: validate config + snapshot release (no tag/push)
+	goreleaser check
+	goreleaser release --snapshot --clean

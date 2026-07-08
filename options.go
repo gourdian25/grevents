@@ -19,6 +19,11 @@ import (
 // on the publisher's own goroutine, reintroducing exactly the "caller
 // blocks for the full backoff duration" footgun sync mode is designed to
 // avoid.
+// OverflowStrategy is documented as a block; see each constant below for
+// per-value semantics.
+//
+// Use case: passed to WithAsync to choose how Publish behaves when the
+// async queue is full.
 type OverflowStrategy int
 
 const (
@@ -54,6 +59,9 @@ func (o OverflowStrategy) valid() bool {
 }
 
 // BusOption configures a Bus at construction time via NewBus.
+//
+// Use case: the functional-option pattern used throughout grevents'
+// public API — each With* function below returns a BusOption.
 type BusOption func(*busConfig)
 
 type busConfig struct {
@@ -87,14 +95,34 @@ func defaultBusConfig() *busConfig {
 	}
 }
 
-// WithSync selects synchronous delivery. This is the default if no
-// delivery-mode option is given.
+// WithSync selects synchronous delivery.
+//
+// Returns:
+//   - BusOption
+//
+// Notes:
+//   - This is the default if no delivery-mode option is given to NewBus;
+//     WithSync only exists so callers can say so explicitly
+//
+// Use case: request-path publishers that need to know every subscriber
+// ran (and whether any failed) before Publish returns.
 func WithSync() BusOption {
 	return func(c *busConfig) { c.async = false }
 }
 
-// WithAsync selects asynchronous delivery with a queue buffered to
-// queueSize, using overflow when the queue is full at Publish time.
+// WithAsync selects asynchronous delivery.
+//
+// Parameters:
+//   - queueSize: int — buffered channel capacity; must be > 0
+//   - overflow: OverflowStrategy — behavior when the queue is full at
+//     Publish time; see OverflowBlock, OverflowDrop, OverflowReject
+//
+// Returns:
+//   - BusOption
+//
+// Use case: publishers that must not block on subscriber work — e.g. an
+// HTTP handler emitting an audit event that shouldn't add latency to the
+// response.
 func WithAsync(queueSize int, overflow OverflowStrategy) BusOption {
 	return func(c *busConfig) {
 		c.async = true
@@ -103,11 +131,25 @@ func WithAsync(queueSize int, overflow OverflowStrategy) BusOption {
 	}
 }
 
-// WithRetry configures async-mode retry: up to maxAttempts total
-// invocations per (event, subscriber) pair (including the first), with
-// Full Jitter exponential backoff starting at baseBackoff and capped at a
-// fixed internal ceiling (see defaultMaxBackoff). Has no effect in sync
-// mode, which never retries.
+// WithRetry configures async-mode retry.
+//
+// Parameters:
+//   - maxAttempts: int — total invocations per (event, subscriber) pair,
+//     including the first; must be >= 1 (1 means no retry)
+//   - baseBackoff: time.Duration — the starting point for Full Jitter
+//     exponential backoff (sleep = random(0, min(cap, base*2^attempt)));
+//     capped at a fixed internal ceiling, see defaultMaxBackoff
+//
+// Returns:
+//   - BusOption
+//
+// Notes:
+//   - Has no effect in sync mode, which never retries (see docs.go for
+//     why)
+//
+// Use case: subscribers calling a flaky downstream (a network call, a
+// database write) that's worth a few automatic retries before falling
+// back to the DeadLetterSink.
 func WithRetry(maxAttempts int, baseBackoff time.Duration) BusOption {
 	return func(c *busConfig) {
 		c.retry.maxAttempts = maxAttempts
@@ -116,7 +158,21 @@ func WithRetry(maxAttempts int, baseBackoff time.Duration) BusOption {
 }
 
 // WithDeadLetterSink overrides the default in-memory DeadLetterSink.
-// Passing nil is a configuration error caught at NewBus time.
+//
+// Parameters:
+//   - sink: DeadLetterSink — must not be nil (see NewMemoryDeadLetterSink
+//     for the default)
+//
+// Returns:
+//   - BusOption
+//
+// Notes:
+//   - Passing nil is a configuration error caught at NewBus time
+//     (wraps ErrInvalidConfig), not silently ignored
+//
+// Use case: swapping in a durable sink (e.g. a future graudit-backed
+// implementation) once one exists, without changing any other bus
+// configuration.
 func WithDeadLetterSink(sink DeadLetterSink) BusOption {
 	return func(c *busConfig) {
 		c.dlqSink = sink
@@ -125,23 +181,61 @@ func WithDeadLetterSink(sink DeadLetterSink) BusOption {
 }
 
 // WithLogger sets the Logger used for diagnostic logging (recovered
-// panics, dead-letter recording failures). Nil is treated as NopLogger().
+// panics, dead-letter recording failures, drain-timeout warnings).
+//
+// Parameters:
+//   - logger: Logger — nil is treated as NopLogger()
+//
+// Returns:
+//   - BusOption
+//
+// Use case: passing a *grlog.Logger (or any type structurally satisfying
+// Logger) to surface grevents' internal diagnostics through the same
+// logging pipeline as the rest of an application.
 func WithLogger(logger Logger) BusOption {
 	return func(c *busConfig) { c.logger = logger }
 }
 
 // WithWorkerCount sets the number of dequeue worker goroutines for an
-// async bus. Worker count controls dequeue parallelism only — it does
-// not bound per-subscriber delivery concurrency, since each dequeued
-// event fans out into one independent goroutine per subscriber (see
-// async.go). Has no effect in sync mode.
+// async bus.
+//
+// Parameters:
+//   - n: int — must be > 0; defaults to 4 if this option is never
+//     supplied
+//
+// Returns:
+//   - BusOption
+//
+// Notes:
+//   - Worker count controls dequeue parallelism only — it does not bound
+//     per-subscriber delivery concurrency, since each dequeued event fans
+//     out into one independent goroutine per subscriber (see async.go);
+//     has no effect in sync mode
+//
+// Use case: tuning how quickly events leave the queue under sustained
+// publish load, independent of how many subscribers each event fans out
+// to.
 func WithWorkerCount(n int) BusOption {
 	return func(c *busConfig) { c.workerCount = n }
 }
 
 // WithDrainTimeout bounds how long Close waits for an async bus's queue
 // and in-flight deliveries to finish before giving up and reporting the
-// shortfall. Has no effect in sync mode, which has nothing to drain.
+// shortfall.
+//
+// Parameters:
+//   - d: time.Duration — must be > 0; defaults to 5s if this option is
+//     never supplied
+//
+// Returns:
+//   - BusOption
+//
+// Notes:
+//   - Has no effect in sync mode, which has nothing to drain
+//
+// Use case: bounding shutdown latency in a service with a strict
+// termination deadline (e.g. a container orchestrator's SIGTERM grace
+// period), at the cost of accepting some events may go unfinished.
 func WithDrainTimeout(d time.Duration) BusOption {
 	return func(c *busConfig) { c.drainTimeout = d }
 }

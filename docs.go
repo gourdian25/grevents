@@ -112,9 +112,12 @@
 // finish within that timeout, Close stops waiting and returns an error
 // wrapping ErrDrainTimeout — it does not and cannot forcibly terminate
 // goroutines still in flight; Go has no such primitive. Stats().DroppedOnClose
-// reports how many events were still queued or in flight when the
-// timeout was reached, and remains readable after Close returns (Stats
-// is the one method that does not return ErrClosed post-close, since it
-// is the mechanism for inspecting drain shortfall). Close is idempotent:
-// calling it more than once is safe and a no-op after the first call.
+// reports how many events were not accounted for when Close returned:
+// either genuinely undelivered work left behind by a timeout, or (rarely,
+// even on a clean drain) an event that raced into the queue between a
+// concurrent Publish call's closed-check and Close's own CompareAndSwap.
+// DroppedOnClose remains readable after Close returns (Stats is the one
+// method that does not return ErrClosed post-close, since it is the
+// mechanism for inspecting drain shortfall). Close is idempotent: calling
+// it more than once is safe and a no-op after the first call.
 package grevents

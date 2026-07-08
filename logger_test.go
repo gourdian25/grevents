@@ -1,3 +1,5 @@
+// File: logger_test.go
+
 package grevents_test
 
 // This file proves *grlog.Logger satisfies grevents.Logger structurally,

@@ -1,4 +1,5 @@
-// Command example is a standalone runnable demonstration of grevents. It
+// File: example/example.go
+
 // is package main, in the same module as grevents itself, and is not
 // part of the library's test surface — mirrors grcache's and
 // gourdiantoken's own example/example.go convention.

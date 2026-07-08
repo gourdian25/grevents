@@ -1,0 +1,64 @@
+version: 2
+
+project_name: grevents
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod verify
+
+builds:
+  # Library project — no binaries
+  - skip: true
+
+archives:
+  - id: source
+    name_template: "{{ .ProjectName }}_{{ .Version }}_src"
+    formats:
+      - tar.gz
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+      - go.mod
+      - go.sum
+      - "**/*.go"
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+
+release:
+  github:
+    owner: gourdian25
+    name: grevents
+  draft: false
+  prerelease: auto
+  name_template: "{{ .ProjectName }} {{ .Version }}"
+  header: |
+    ## {{ .ProjectName }} {{ .Version }}
+
+    A lightweight, pluggable, in-process event bus for the gourdian ecosystem.
+
+    ### Highlights
+    - Synchronous and asynchronous delivery, chosen at construction time
+    - Retry with Full Jitter exponential backoff and dead-letter handling
+    - Always-on panic recovery — one bad subscriber can't crash the bus
+    - Honest, bounded shutdown with drain-timeout reporting
+    - Structural `Logger` interface — drop in `*grlog.Logger` with no adapter
+
+    See [CHANGELOG.md](https://github.com/gourdian25/grevents/blob/master/CHANGELOG.md) for full details.
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - '^build:'
+      - '^refactor:'
+      - '^style:'
+      - README
+      - Merge pull request

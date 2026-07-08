@@ -12,7 +12,14 @@ type subscription struct {
 }
 
 // SubscribeOption is an extension point for per-subscription
-// configuration. No concrete option is defined in v1.
+// configuration, passed variadically to Bus.Subscribe.
+//
+// Notes:
+//   - No concrete option is defined in v1
+//
+// Use case: reserved for future per-subscription knobs (e.g. a
+// subscription-specific retry override) without a breaking change to
+// Bus.Subscribe's signature.
 type SubscribeOption func(*subscription)
 
 // registry is the topic -> subscriptions index shared by sync and async
