@@ -1,0 +1,8 @@
+.
+├── CLAUDE.md
+├── README.md
+└── docs/
+    └── plan/
+        └── grevents-plan.md
+
+2 directories, 3 files
