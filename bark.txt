@@ -1,8 +1,30 @@
 .
 ├── CLAUDE.md
+├── Makefile
 ├── README.md
-└── docs/
-    └── plan/
-        └── grevents-plan.md
+├── async.go
+├── bus.go
+├── bus_test.go
+├── conformance/
+│   └── conformance.go
+├── deadletter.go
+├── deadletter_test.go
+├── docs/
+│   └── plan/
+│       └── grevents-plan.md
+├── docs.go
+├── errors.go
+├── go.mod
+├── logger.go
+├── middleware_logging.go
+├── middleware_recovery.go
+├── middleware_tracing.go
+├── options.go
+├── race_test.go
+├── retry.go
+├── retry_test.go
+├── stats.go
+├── subscriber.go
+└── sync.go
 
-2 directories, 3 files
+3 directories, 24 files
