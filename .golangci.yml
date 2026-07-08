@@ -8,6 +8,17 @@ linters:
     - misspell
     - gocritic
     - revive
+  settings:
+    revive:
+      rules:
+        # HandlerFunc, Logger, and DeadLetterSink are fixed interface
+        # shapes (func(ctx context.Context, event Event) error,
+        # Infof(format string, ...), etc.) — most test doubles and
+        # example subscribers legitimately don't need every parameter,
+        # and dropping the name would make call sites harder to read
+        # against the interface they're implementing.
+        - name: unused-parameter
+          disabled: true
   exclusions:
     rules:
       # Test files use large loop counts and test-controlled inputs by

@@ -396,7 +396,11 @@ func (b *eventBus) Close() error {
 	// has stopped waiting for the ones it already knows about — these
 	// are counted as dropped, not delivered.
 	straggled := drainQueueCount(b.queue)
-	b.st.droppedOnClose.Store(straggled + uint64(b.inFlight.Load()))
+	inFlight := b.inFlight.Load()
+	if inFlight < 0 {
+		inFlight = 0 // defensive only: Add(1)/Add(-1) are always balanced, this should be unreachable
+	}
+	b.st.droppedOnClose.Store(straggled + uint64(inFlight)) //nolint:gosec // guarded non-negative immediately above
 
 	if b.dlqSink != nil {
 		_ = b.dlqSink.Close()

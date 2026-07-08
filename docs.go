@@ -1,5 +1,6 @@
 // File: docs.go
 
+// Package grevents provides a lightweight, pluggable, in-process event bus
 // for the gourdian ecosystem.
 //
 // Overview:

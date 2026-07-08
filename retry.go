@@ -40,11 +40,11 @@ func computeBackoff(rc retryConfig, attempt int) time.Duration {
 	}
 
 	exp := ceiling
-	if attempt < 62 { // 1<<62 already exceeds any sane baseBackoff*factor; avoid signed-shift overflow beyond this
-		if scaled := rc.baseBackoff * (1 << uint(attempt)); scaled > 0 && scaled < ceiling {
+	if attempt >= 0 && attempt < 62 { // 1<<62 already exceeds any sane baseBackoff*factor; avoid signed-shift overflow beyond this
+		if scaled := rc.baseBackoff * (1 << uint(attempt)); scaled > 0 && scaled < ceiling { //nolint:gosec // attempt is bounded to [0,62) on this branch
 			exp = scaled
 		}
 	}
 
-	return time.Duration(rand.Int63n(int64(exp) + 1)) // uniform [0, exp]
+	return time.Duration(rand.Int63n(int64(exp) + 1)) //nolint:gosec // backoff jitter has no cryptographic requirement
 }

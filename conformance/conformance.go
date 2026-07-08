@@ -1,5 +1,6 @@
 // File: conformance/conformance.go
 
+// Package conformance is a shared behavioral test suite for grevents Bus
 // implementations. It is the primary test artifact for the bus's own
 // package (see grevents' bus_test.go), which supplies grevents.NewBus
 // itself to Run — matching the exact BusOption-based constructor
@@ -77,6 +78,7 @@ func Run(t *testing.T, newBus newBusFunc, opts ...RunOption) {
 	t.Run("SubscribeAfterCloseReturnsErrClosed", func(t *testing.T) { testSubscribeAfterCloseReturnsErrClosed(t, newBus) })
 	t.Run("UnsubscribeStopsDelivery", func(t *testing.T) { testUnsubscribeStopsDelivery(t, newBus) })
 	t.Run("MiddlewareChainOrdering", func(t *testing.T) { testMiddlewareChainOrdering(t, newBus) })
+	t.Run("MiddlewareAddedMidStreamAppliesToNextPublish", func(t *testing.T) { testMiddlewareAddedMidStreamAppliesToNextPublish(t, newBus) })
 	t.Run("StatsSanity", func(t *testing.T) { testStatsSanity(t, newBus) })
 }
 
@@ -742,6 +744,53 @@ func testMiddlewareChainOrdering(t *testing.T, newBus newBusFunc) {
 		if got[i] != want[i] {
 			t.Fatalf("order = %v, want %v", got, want)
 		}
+	}
+}
+
+// testMiddlewareAddedMidStreamAppliesToNextPublish exercises Bus.Use's
+// doc comment claim directly — that middleware "is guaranteed to apply
+// to every delivery that reads the chain after it was added" — rather
+// than only ever testing statically pre-registered middleware ordering
+// (see testMiddlewareChainOrdering above), which would pass even if the
+// chain were snapshotted once at bus-construction time instead of fresh
+// on every delivery.
+func testMiddlewareAddedMidStreamAppliesToNextPublish(t *testing.T, newBus newBusFunc) {
+	t.Helper()
+	ctx := context.Background()
+	bus, err := newBus(grevents.WithSync())
+	if err != nil {
+		t.Fatalf("newBus: %v", err)
+	}
+	defer bus.Close()
+
+	var applied atomic.Int32
+	if _, err := bus.Subscribe("topic", func(ctx context.Context, event grevents.Event) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	// First Publish, before any middleware is registered.
+	if err := bus.Publish(ctx, grevents.Event{Topic: "topic"}); err != nil {
+		t.Fatalf("Publish (before Use): %v", err)
+	}
+	if applied.Load() != 0 {
+		t.Fatalf("applied = %d before Use was ever called, want 0", applied.Load())
+	}
+
+	bus.Use(func(next grevents.HandlerFunc) grevents.HandlerFunc {
+		return func(ctx context.Context, event grevents.Event) error {
+			applied.Add(1)
+			return next(ctx, event)
+		}
+	})
+
+	// Second Publish, after Use — the middleware must apply to this one.
+	if err := bus.Publish(ctx, grevents.Event{Topic: "topic"}); err != nil {
+		t.Fatalf("Publish (after Use): %v", err)
+	}
+	if applied.Load() != 1 {
+		t.Fatalf("applied = %d after a Publish following Use, want 1", applied.Load())
 	}
 }
 
