@@ -312,54 +312,36 @@ func testAsyncRetryExhaustionDeadLetters(t *testing.T, newBus newBusFunc, cfg *r
 //
 // Handler execution runs on its own goroutine, decoupled from the
 // worker's dequeue loop (see async.go's dispatchToSubscribers) — a slow
-// handler therefore cannot, by design, create queue backpressure. These
-// scenarios instead register a large number of subscribers on the flood
-// topic: the worker's synchronous per-event fan-out loop (spawning one
-// goroutine per subscriber) then takes long enough that a queue of
-// capacity 1 can reliably be observed full by a second Publish call
-// issued immediately afterward, with no sleep required.
-const floodSubscriberCount = 20000
+// handler therefore cannot, by design, create queue backpressure; nor can
+// a slow dispatch loop be relied on to reliably do so (goroutine-spawn
+// cost is too small and too variable a margin to race against
+// deterministically). These scenarios instead lean on genuine
+// concurrency: a burst of many producer goroutines released
+// simultaneously against a single-slot queue serviced by exactly one
+// worker will, with overwhelming likelihood, produce real contention —
+// the same style of real-concurrency-at-scale technique grcache's own
+// conformance suite uses for its concurrent-tag scenarios.
+const burstSize = 300
 
-func registerFloodSubscribers(t *testing.T, bus grevents.Bus, topic string, n int) {
-	t.Helper()
+// burstPublish releases n goroutines to call Publish(topic) on bus at
+// (as close to) the same instant as possible, and returns their results
+// in call order.
+func burstPublish(bus grevents.Bus, topic string, n int) []error {
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	results := make([]error, n)
+	wg.Add(n)
 	for i := 0; i < n; i++ {
-		if _, err := bus.Subscribe(topic, func(ctx context.Context, event grevents.Event) error {
-			return nil
-		}); err != nil {
-			t.Fatalf("Subscribe flood subscriber %d: %v", i, err)
-		}
+		i := i
+		go func() {
+			defer wg.Done()
+			<-start
+			results[i] = bus.Publish(context.Background(), grevents.Event{Topic: topic})
+		}()
 	}
-}
-
-func testOverflowBlock(t *testing.T, newBus newBusFunc) {
-	t.Helper()
-	bus, err := newBus(grevents.WithAsync(1, grevents.OverflowBlock), grevents.WithWorkerCount(1))
-	if err != nil {
-		t.Fatalf("newBus: %v", err)
-	}
-	defer bus.Close()
-
-	registerFloodSubscribers(t, bus, "flood", floodSubscriberCount)
-
-	ctx := context.Background()
-	// A: dequeued near-instantly, kicks off the slow fan-out.
-	if err := bus.Publish(ctx, grevents.Event{Topic: "flood"}); err != nil {
-		t.Fatalf("Publish A: %v", err)
-	}
-	// B: fills the size-1 buffer while the worker is still busy
-	// fanning out A.
-	if err := bus.Publish(ctx, grevents.Event{Topic: "flood"}); err != nil {
-		t.Fatalf("Publish B: %v", err)
-	}
-	// C: queue is full and the worker hasn't come back for it yet, so
-	// this call must block. Prove it by giving it a deadline shorter
-	// than the fan-out is expected to take.
-	shortCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
-	defer cancel()
-	err = bus.Publish(shortCtx, grevents.Event{Topic: "flood"})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Publish C (queue full, OverflowBlock) error = %v, want context.DeadlineExceeded", err)
-	}
+	close(start)
+	wg.Wait()
+	return results
 }
 
 func testOverflowReject(t *testing.T, newBus newBusFunc) {
@@ -370,76 +352,143 @@ func testOverflowReject(t *testing.T, newBus newBusFunc) {
 	}
 	defer bus.Close()
 
-	registerFloodSubscribers(t, bus, "flood", floodSubscriberCount)
+	results := burstPublish(bus, "flood", burstSize)
 
-	ctx := context.Background()
-	if err := bus.Publish(ctx, grevents.Event{Topic: "flood"}); err != nil {
-		t.Fatalf("Publish A: %v", err)
+	var rejected, accepted int
+	for _, err := range results {
+		switch {
+		case errors.Is(err, grevents.ErrQueueFull):
+			rejected++
+		case err == nil:
+			accepted++
+		default:
+			t.Fatalf("Publish returned unexpected error: %v", err)
+		}
 	}
-	if err := bus.Publish(ctx, grevents.Event{Topic: "flood"}); err != nil {
-		t.Fatalf("Publish B: %v", err)
+	if rejected == 0 {
+		t.Fatalf("0/%d concurrent publishes were rejected against a size-1 queue; want at least 1 ErrQueueFull", burstSize)
 	}
-	if err := bus.Publish(ctx, grevents.Event{Topic: "flood"}); !errors.Is(err, grevents.ErrQueueFull) {
-		t.Fatalf("Publish C (queue full, OverflowReject) error = %v, want ErrQueueFull", err)
+	if accepted == 0 {
+		t.Fatalf("0/%d concurrent publishes were accepted; want at least 1 to succeed", burstSize)
 	}
 }
 
 func testOverflowDrop(t *testing.T, newBus newBusFunc, cfg *runConfig) {
 	t.Helper()
+	var delivered atomic.Int64
 	bus, err := newBus(grevents.WithAsync(1, grevents.OverflowDrop), grevents.WithWorkerCount(1))
 	if err != nil {
 		t.Fatalf("newBus: %v", err)
 	}
 	defer bus.Close()
 
-	registerFloodSubscribers(t, bus, "flood", floodSubscriberCount)
-
-	var mu sync.Mutex
-	received := map[string]bool{}
 	if _, err := bus.Subscribe("flood", func(ctx context.Context, event grevents.Event) error {
-		mu.Lock()
-		received[event.Metadata["id"]] = true
-		mu.Unlock()
+		delivered.Add(1)
 		return nil
 	}); err != nil {
-		t.Fatalf("Subscribe tracker: %v", err)
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	results := burstPublish(bus, "flood", burstSize)
+	for i, err := range results {
+		if err != nil {
+			t.Fatalf("Publish[%d] = %v, want nil (OverflowDrop never errors)", i, err)
+		}
+	}
+
+	// Poll until delivery count stops climbing, then confirm strictly
+	// fewer than burstSize were ever delivered — proving at least one was
+	// dropped rather than merely "not yet delivered."
+	var last int64 = -1
+	deadline := time.Now().Add(cfg.eventualConsistencyTimeout)
+	for {
+		cur := delivered.Load()
+		if cur == last {
+			break
+		}
+		last = cur
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if delivered.Load() >= int64(burstSize) {
+		t.Fatalf("delivered %d/%d events against a size-1 queue with OverflowDrop; want strictly fewer than %d (at least one dropped)",
+			delivered.Load(), burstSize, burstSize)
+	}
+}
+
+// floodSubscriberCount is registered on the topic used by
+// testOverflowBlock only, so that dispatching a single dequeued event
+// (dispatchToSubscribers' snapshot-then-spawn-one-goroutine-per-subscriber
+// loop) takes tens of milliseconds. The worker's loop is dequeue-then-
+// synchronously-dispatch-then-loop: it can only ever free one queue slot
+// per dispatch cycle, no matter how much backlog is queued behind it, so
+// making the backlog deeper does not extend how long the very next slot
+// takes to free up — only a genuinely slow single dispatch does. This
+// value is calibrated (empirically, not guessed) so that one dispatch
+// cycle reliably takes several times longer than blockDeadline below.
+const floodSubscriberCount = 100000
+
+// blockQueueSize is deliberately larger than 1: filling a size-1 queue
+// requires winning a genuine cross-goroutine race against the worker's
+// very first dequeue, which proved unreliable even with the flood
+// subscribers above (a worker that has to wake up on a different
+// goroutine still sometimes drains the single slot before this
+// goroutine's very next statement runs). A same-goroutine sequential fill
+// of many slots sidesteps that race entirely: each fill is just a channel
+// send on a goroutine that never blocks or yields, completing in
+// microseconds — far faster than the worker can even get scheduled.
+//
+// The fill loop runs blockQueueSize+1 times, not blockQueueSize: the
+// worker's very first dequeue (near-instant, since dequeuing happens
+// before the slow part — dispatch) frees exactly one slot partway through
+// the sequential fill, so filling only blockQueueSize times leaves one
+// slot short of actually full. The +1 send lands in that freed slot,
+// leaving the buffer genuinely at capacity with the worker already
+// mid-dispatch of the first event.
+const blockQueueSize = 32
+
+// blockDeadline must be comfortably shorter than one flood dispatch cycle
+// (see floodSubscriberCount) — the victim publish below only needs to
+// wait for a single slot to free, which happens as soon as the
+// in-progress dispatch finishes, regardless of how much backlog sits
+// behind it.
+const blockDeadline = 15 * time.Millisecond
+
+func testOverflowBlock(t *testing.T, newBus newBusFunc) {
+	t.Helper()
+	bus, err := newBus(grevents.WithAsync(blockQueueSize, grevents.OverflowBlock), grevents.WithWorkerCount(1))
+	if err != nil {
+		t.Fatalf("newBus: %v", err)
+	}
+	defer bus.Close()
+
+	for i := 0; i < floodSubscriberCount; i++ {
+		if _, err := bus.Subscribe("flood", func(ctx context.Context, event grevents.Event) error {
+			return nil
+		}); err != nil {
+			t.Fatalf("Subscribe flood subscriber %d: %v", i, err)
+		}
 	}
 
 	ctx := context.Background()
-	if err := bus.Publish(ctx, grevents.Event{Topic: "flood", Metadata: map[string]string{"id": "A"}}); err != nil {
-		t.Fatalf("Publish A: %v", err)
-	}
-	if err := bus.Publish(ctx, grevents.Event{Topic: "flood", Metadata: map[string]string{"id": "B"}}); err != nil {
-		t.Fatalf("Publish B: %v", err)
-	}
-	// C races into the full queue and, per OverflowDrop, is silently
-	// discarded: Publish still returns nil.
-	if err := bus.Publish(ctx, grevents.Event{Topic: "flood", Metadata: map[string]string{"id": "C"}}); err != nil {
-		t.Fatalf("Publish C = %v, want nil (OverflowDrop never errors)", err)
+	for i := 0; i < blockQueueSize+1; i++ {
+		if err := bus.Publish(ctx, grevents.Event{Topic: "flood"}); err != nil {
+			t.Fatalf("Publish (filling slot %d/%d): %v", i, blockQueueSize+1, err)
+		}
 	}
 
-	deadline := time.Now().Add(cfg.eventualConsistencyTimeout)
-	for {
-		mu.Lock()
-		gotA, gotB := received["A"], received["B"]
-		mu.Unlock()
-		if gotA && gotB {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("A and B not both delivered within %s (A=%v B=%v)", cfg.eventualConsistencyTimeout, gotA, gotB)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-
-	// Grace period past A/B's confirmed delivery so a wrongly-enqueued C
-	// would have had time to show up too.
-	time.Sleep(50 * time.Millisecond)
-	mu.Lock()
-	gotC := received["C"]
-	mu.Unlock()
-	if gotC {
-		t.Fatalf("event C was delivered, want dropped (OverflowDrop with a full queue)")
+	// The queue is now genuinely full, with the worker already
+	// mid-dispatch of the first event: this same goroutine put every one
+	// of those events there itself, sequentially, without ever
+	// yielding — no cross-goroutine race to reason about.
+	shortCtx, cancel := context.WithTimeout(ctx, blockDeadline)
+	defer cancel()
+	err = bus.Publish(shortCtx, grevents.Event{Topic: "flood"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Publish (queue filled to capacity, OverflowBlock) error = %v, want context.DeadlineExceeded", err)
 	}
 }
 

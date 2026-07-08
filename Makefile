@@ -106,10 +106,15 @@ coverage-summary: $(COVERAGE_DIR) ## Print per-function coverage summary
 	$(GO) tool cover -func=$(COVERAGE_DIR)/coverage.out
 
 .PHONY: coverage-check
-coverage-check: $(COVERAGE_DIR) ## Fail if total coverage drops below COVERAGE_MIN
-	$(GO) test -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
-	@pct=$$($(GO) tool cover -func=$(COVERAGE_DIR)/coverage.out | tail -1 | awk '{print $$3}' | tr -d '%'); \
-	echo "Total coverage: $$pct%% (minimum: $(COVERAGE_MIN)%%)"; \
+# Only the root package is checked: conformance is test-only infrastructure
+# (no _test.go files of its own — its scenarios run via the root package's
+# TestConformance) and example is a runnable demo, not library code under
+# test — matching grcache's own coverage-check convention exactly.
+coverage-check: $(COVERAGE_DIR) ## Fail if root package coverage drops below COVERAGE_MIN
+	@out=$$($(GO) test -cover . 2>&1); \
+	echo "$$out"; \
+	pct=$$(echo "$$out" | grep -o '[0-9.]*%' | tr -d '%'); \
+	if [ -z "$$pct" ]; then echo "❌ no coverage output"; exit 1; fi; \
 	awk -v p="$$pct" -v m="$(COVERAGE_MIN)" 'BEGIN { exit !(p >= m) }' \
 		|| { echo "❌ Coverage $$pct%% is below minimum $(COVERAGE_MIN)%%"; exit 1; }
 
