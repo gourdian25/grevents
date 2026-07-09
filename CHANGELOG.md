@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-07-08
+## [0.1.0] - 2026-07-09
 
 Initial release: an in-process, pluggable event bus for the gourdian
 ecosystem, built directly on top of proven patterns from `grlog` and
@@ -59,6 +59,20 @@ design rationale behind each of these decisions.
   ordering, and `Close` draining both within and past its timeout
 - `example/example.go`: a standalone runnable demonstration of every
   major feature, including `grlog` interoperability
+
+### Fixed
+
+- Panic recovery now genuinely covers every user-pluggable extension
+  point, not just `HandlerFunc`/`Middleware`: a panic in a user-supplied
+  `Logger` or `DeadLetterSink` implementation is also recovered and can no
+  longer crash the bus or the host process (`safeLogErrorf` and
+  `recordDeadLetter` in `middleware_recovery.go`). Found via an empirical
+  audit that reproduced a real process crash from a panicking
+  `DeadLetterSink.Record`, in the same spirit as the grcache
+  Pipeline/TxPipeline "docs claimed more than the code enforced" lesson.
+  Covered by two new conformance scenarios,
+  `DeadLetterSinkPanicDoesNotCrashBus` and
+  `LoggerPanicDuringRecoveryDoesNotCrashBus`.
 
 ### Delivery guarantees (stated precisely, per the grcache Pipeline/
 TxPipeline lesson — see CLAUDE.md)
