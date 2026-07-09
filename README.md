@@ -13,7 +13,7 @@ grevents is explicitly **not** an attempt to replace Kafka, NATS, or RabbitMQ. I
 - 🔌 **Pluggable delivery** — synchronous (blocks until every subscriber has run) or asynchronous (a worker pool delivers in the background), chosen once at construction
 - 🔁 **Retry with backoff** — Full Jitter exponential backoff for async subscribers, independently per subscriber, so one flaky consumer never blocks another
 - 💀 **Dead-letter handling** — an event that exhausts its retries lands in an inspectable `DeadLetterSink` instead of vanishing
-- 🛡️ **Panic-safe by default** — a subscriber panic is always recovered and converted into an error; this is not optional and cannot be disabled
+- 🛡️ **Panic-safe by default** — a panic in a handler, middleware, `Logger`, or `DeadLetterSink` is always recovered; none of grevents' user-pluggable extension points can crash the bus or the host process, and this is not optional
 - 🧵 **Honest shutdown** — `Close` drains within a configurable timeout and tells you exactly how many events it couldn't finish, rather than pretending everything always completes
 - 📊 **Built-in stats** — published/delivered/failed/dead-lettered counters and queue depth via `Stats()`
 - 🪵 **grlog interoperability** — `*grlog.Logger` satisfies grevents' `Logger` interface with zero adapter code

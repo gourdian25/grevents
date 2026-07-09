@@ -150,9 +150,7 @@ retryLoop:
 	}
 
 	b.st.deadLettered.Add(1)
-	if err := b.dlqSink.Record(context.Background(), event, lastErr, b.retry.maxAttempts); err != nil {
-		b.logger.Errorf("grevents: dead-letter record failed for topic %q: %v", event.Topic, err)
-	}
+	recordDeadLetter(b.dlqSink, b.logger, event, lastErr, b.retry.maxAttempts)
 }
 
 // drainQueueCount non-blockingly counts and discards whatever is left in

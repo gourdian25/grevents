@@ -75,10 +75,13 @@
 //     subscriber's handler runs exactly once per Publish, with no retry.
 //   - There is no cross-process deduplication, ever, in either mode.
 //     grevents has no concept of another process.
-//   - A panic inside a subscriber's handler, or inside user-supplied
-//     middleware, is always recovered and converted into an error; it
-//     never crashes the bus or the host process. This is not optional and
-//     cannot be disabled.
+//   - A panic in a subscriber's handler, user-supplied middleware, a
+//     Logger, or a DeadLetterSink is always recovered — converted into an
+//     error where one is expected (handler/middleware), or swallowed
+//     after a best-effort log attempt otherwise (Logger/DeadLetterSink,
+//     since there is no error return to convert it into). None of
+//     grevents' user-pluggable extension points can crash the bus or the
+//     host process. This is not optional and cannot be disabled.
 //
 // Topics:
 //

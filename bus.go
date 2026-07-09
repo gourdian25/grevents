@@ -403,7 +403,15 @@ func (b *eventBus) Close() error {
 	b.st.droppedOnClose.Store(straggled + uint64(inFlight)) //nolint:gosec // guarded non-negative immediately above
 
 	if b.dlqSink != nil {
-		_ = b.dlqSink.Close()
+		// A misbehaving DeadLetterSink.Close must not crash whatever
+		// goroutine called Bus.Close (often the caller's own, via
+		// defer bus.Close()) — same panic-safety guarantee as every
+		// other user-pluggable extension point, see
+		// middleware_recovery.go.
+		func() {
+			defer func() { _ = recover() }()
+			_ = b.dlqSink.Close()
+		}()
 	}
 
 	if timedOut {

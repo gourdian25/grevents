@@ -48,7 +48,7 @@ Key design decisions already made in the plan (validate, don't relitigate, unles
 - **Async mode retries per-subscriber independently** — one slow/failing subscriber must not block delivery to other subscribers of the same event.
 - **No wildcard/glob topic matching in v1** — `Subscribe` is exact-string match only.
 - **Delivery guarantees are precise, not aspirational**: at-least-once for async (a handler may run more than once if a retry races a late-failing success), at-most-once for sync within one `Publish` call, no cross-process dedup ever (single-process only). State this plainly in doc comments.
-- **Panic recovery is always-on**, wrapping every handler invocation — a misbehaving subscriber must not crash the bus or host process.
+- **Panic recovery is always-on**, wrapping every handler invocation, and also covers `Logger`/`DeadLetterSink` panics (see `safeLogErrorf`/`recordDeadLetter` in `middleware_recovery.go`) — none of grevents' user-pluggable extension points can crash the bus or host process.
 - **`Close()` is idempotent** (`sync.Once`, matching grlog/grcache/gourdiantoken), stops accepting new `Publish` calls immediately, drains the async queue up to a configurable timeout, then force-stops and reports how many events were dropped.
 - **No hard dependency on grlog** — its `Logger` is consumed only as a structural interface, same pattern as grcache.
 

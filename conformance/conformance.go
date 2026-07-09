@@ -71,6 +71,8 @@ func Run(t *testing.T, newBus newBusFunc, opts ...RunOption) {
 	t.Run("OverflowDrop", func(t *testing.T) { testOverflowDrop(t, newBus, cfg) })
 	t.Run("OverflowReject", func(t *testing.T) { testOverflowReject(t, newBus) })
 	t.Run("PanicInHandlerDoesNotCrashBus", func(t *testing.T) { testPanicInHandlerDoesNotCrashBus(t, newBus) })
+	t.Run("DeadLetterSinkPanicDoesNotCrashBus", func(t *testing.T) { testDeadLetterSinkPanicDoesNotCrashBus(t, newBus) })
+	t.Run("LoggerPanicDuringRecoveryDoesNotCrashBus", func(t *testing.T) { testLoggerPanicDuringRecoveryDoesNotCrashBus(t, newBus) })
 	t.Run("CloseDrainsWithinTimeout", func(t *testing.T) { testCloseDrainsWithinTimeout(t, newBus) })
 	t.Run("CloseForceStopsAfterTimeout", func(t *testing.T) { testCloseForceStopsAfterTimeout(t, newBus) })
 	t.Run("CloseIdempotent", func(t *testing.T) { testCloseIdempotent(t, newBus) })
@@ -534,6 +536,110 @@ func testPanicInHandlerDoesNotCrashBus(t *testing.T, newBus newBusFunc) {
 	}
 	if err := bus.Publish(ctx, grevents.Event{Topic: "topic2"}); err != nil {
 		t.Fatalf("Publish after panic recovery: %v", err)
+	}
+}
+
+// panickingDeadLetterSink is a DeadLetterSink whose Record always panics,
+// used to prove a misbehaving sink cannot crash the bus (see
+// grevents' middleware_recovery.go: recordDeadLetter).
+type panickingDeadLetterSink struct{}
+
+func (panickingDeadLetterSink) Record(context.Context, grevents.Event, error, int) error {
+	panic("conformance: DeadLetterSink.Record panics")
+}
+func (panickingDeadLetterSink) List(context.Context, int) ([]grevents.DeadLetterEntry, error) {
+	return nil, nil
+}
+func (panickingDeadLetterSink) Close() error { return nil }
+
+func testDeadLetterSinkPanicDoesNotCrashBus(t *testing.T, newBus newBusFunc) {
+	t.Helper()
+	ctx := context.Background()
+	bus, err := newBus(
+		grevents.WithAsync(4, grevents.OverflowBlock),
+		grevents.WithRetry(1, time.Millisecond), // 1 attempt = immediate dead-letter on first failure
+		grevents.WithDeadLetterSink(panickingDeadLetterSink{}),
+		grevents.WithWorkerCount(1),
+	)
+	if err != nil {
+		t.Fatalf("newBus: %v", err)
+	}
+	defer bus.Close()
+
+	if _, err := bus.Subscribe("topic", func(ctx context.Context, event grevents.Event) error {
+		return errors.New("always fails, forcing a dead-letter handoff")
+	}); err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	if err := bus.Publish(ctx, grevents.Event{Topic: "topic"}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	// If the DeadLetterSink's panic were unrecovered, the test binary
+	// itself would have already crashed by the time this line runs —
+	// there is nothing further to assert about the panic directly, only
+	// that delivery keeps working afterward.
+	var otherInvoked atomic.Bool
+	if _, err := bus.Subscribe("topic2", func(ctx context.Context, event grevents.Event) error {
+		otherInvoked.Store(true)
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe after DeadLetterSink panic: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !otherInvoked.Load() && time.Now().Before(deadline) {
+		if err := bus.Publish(ctx, grevents.Event{Topic: "topic2"}); err != nil {
+			t.Fatalf("Publish after DeadLetterSink panic: %v", err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !otherInvoked.Load() {
+		t.Fatal("bus stopped delivering events after a DeadLetterSink panic")
+	}
+}
+
+// panickingLogger is a Logger whose Errorf always panics, used to prove a
+// misbehaving Logger cannot crash the bus even when it is called from
+// within a panic-recovery block that is already unwinding a different
+// panic (see grevents' middleware_recovery.go: safeLogErrorf).
+type panickingLogger struct{}
+
+func (panickingLogger) Infof(string, ...interface{}) {}
+func (panickingLogger) Warnf(string, ...interface{}) {}
+func (panickingLogger) Errorf(string, ...interface{}) {
+	panic("conformance: Logger.Errorf panics")
+}
+
+func testLoggerPanicDuringRecoveryDoesNotCrashBus(t *testing.T, newBus newBusFunc) {
+	t.Helper()
+	ctx := context.Background()
+	bus, err := newBus(grevents.WithSync(), grevents.WithLogger(panickingLogger{}))
+	if err != nil {
+		t.Fatalf("newBus: %v", err)
+	}
+	defer bus.Close()
+
+	if _, err := bus.Subscribe("topic", func(ctx context.Context, event grevents.Event) error {
+		panic("boom: handler panics too, forcing invokeHandler's recover block to log through the panicking Logger")
+	}); err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	err = bus.Publish(ctx, grevents.Event{Topic: "topic"})
+	if err == nil {
+		t.Fatalf("Publish (handler panicked) = nil, want an error")
+	}
+
+	// Bus must remain usable for subsequent Publish calls.
+	if _, err := bus.Subscribe("topic2", func(ctx context.Context, event grevents.Event) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe after Logger panic during recovery: %v", err)
+	}
+	if err := bus.Publish(ctx, grevents.Event{Topic: "topic2"}); err != nil {
+		t.Fatalf("Publish after Logger panic during recovery: %v", err)
 	}
 }
 
