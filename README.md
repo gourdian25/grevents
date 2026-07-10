@@ -1,12 +1,30 @@
 # 🎉 grevents - Lightweight In-Process Event Bus for Go
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/gourdian25/grevents.svg)](https://pkg.go.dev/github.com/gourdian25/grevents)
-[![Go Version](https://img.shields.io/badge/go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/go-1.26.4+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A lightweight, pluggable, **in-process** event bus for the gourdian ecosystem. It decouples producers of state changes (e.g. `grauth` assigning a role) from consumers that react to them (`graudit` recording it, `grcache` invalidating a related tag, a future notification system emailing someone) — without the producer needing to know any consumer exists.
 
 grevents is explicitly **not** an attempt to replace Kafka, NATS, or RabbitMQ. It runs entirely within a single process's memory — see [Delivery Guarantees](#-delivery-guarantees) before assuming more than that.
+
+## 🌐 Part of the gourdian25 ecosystem
+
+grevents is one of several small, independent Go libraries meant to be used
+together:
+
+- [gourdiantoken](https://github.com/gourdian25/gourdiantoken) — JWT
+  access/refresh token issuance, verification, revocation, and rotation.
+- [grlog](https://github.com/gourdian25/grlog) — zero-dependency structured
+  logging; grevents' optional `Logger` interface is satisfied by it directly.
+- [grcache](https://github.com/gourdian25/grcache) — backend-agnostic
+  caching abstraction; a consumer of grevents for tag invalidation.
+- [graudit](https://github.com/gourdian25/graudit) — an append-only,
+  tamper-evident audit log; publishes an `"audit.recorded"` event through
+  grevents on every successful write.
+- [grpolicy](https://github.com/gourdian25/grpolicy) — attribute-based
+  policy evaluation (RBAC/ABAC), independent of any notion of "user" or
+  "role".
 
 ## 🌟 Why grevents?
 
@@ -37,7 +55,7 @@ grevents is explicitly **not** an attempt to replace Kafka, NATS, or RabbitMQ. I
 go get github.com/gourdian25/grevents
 ```
 
-Requires Go 1.24+.
+Requires Go 1.26.4+ (ecosystem-aligned minimum; only 1.24+ is functionally needed).
 
 ## 🚀 Quick Start
 

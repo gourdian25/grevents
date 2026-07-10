@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-10
+
+Ecosystem-alignment pass ahead of `grauth`: no functional/API changes.
+
+### Changed
+
+- `go.mod`'s `go` directive raised from `1.24` to `1.26.4`, aligning with
+  the rest of the gourdian25 ecosystem.
+- README: added `grpolicy` to the ecosystem section and corrected the Go
+  version badge/requirement from `1.24+` to `1.26.4+`.
+- Bumped `github.com/gourdian25/grlog` to `v0.1.1`.
+
 ## [0.1.0] - 2026-07-09
 
 Initial release: an in-process, pluggable event bus for the gourdian
@@ -86,5 +98,6 @@ TxPipeline lesson — see CLAUDE.md)
 - **No cross-process deduplication, ever, in either mode.** grevents runs
   entirely in one process's memory.
 
-[Unreleased]: https://github.com/gourdian25/grevents/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/gourdian25/grevents/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/gourdian25/grevents/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/gourdian25/grevents/releases/tag/v0.1.0
