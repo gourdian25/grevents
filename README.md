@@ -199,10 +199,10 @@ Stated precisely rather than aspirationally — see `docs.go` for the full text:
 make test           # go test -cover ./...
 make race            # go test -race ./...  (mandatory before any commit touching delivery code)
 make bench           # sync vs async throughput, middleware chain cost
-make coverage-check  # root package must meet an 80% coverage threshold
+make coverage-check  # root package must meet a 95% coverage threshold
 ```
 
-The [`conformance`](conformance/) package is the primary test artifact — a shared behavioral test suite covering sync delivery, async delivery with retry and dead-lettering, all three overflow strategies under genuine concurrent load, panic recovery, middleware ordering, and `Close` draining both within and past its timeout.
+[`contract_bus_test.go`](contract_bus_test.go) is the primary test artifact — a shared behavioral test suite (`TestBus_Contract`) covering sync delivery, async delivery with retry and dead-lettering, all three overflow strategies under genuine concurrent load, panic recovery, middleware ordering, and `Close` draining both within and past its timeout. It was originally a separate `conformance` package (importable so a hypothetical future `Bus` implementation could reuse it) but has since been folded directly into the root package's own tests for consistency with the rest of the gourdian ecosystem.
 
 ## 🤝 Contributing
 

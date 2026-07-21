@@ -1,18 +1,13 @@
-// File: conformance/conformance.go
+// File: contract_bus_test.go
 
-// Package conformance is a shared behavioral test suite for grevents Bus
-// implementations. It is the primary test artifact for the bus's own
-// package (see grevents' bus_test.go), which supplies grevents.NewBus
-// itself to Run — matching the exact BusOption-based constructor
+// contract_bus_test.go is the shared behavioral test suite for grevents'
+// Bus implementation, run via TestBus_Contract below against
+// grevents.NewBus — matching the exact BusOption-based constructor
 // signature so a hypothetical future Bus implementation (e.g. a
-// distributed adapter) could plug into this same suite without any
-// adapter shim, as long as it accepts the same BusOption surface. It is
-// not an exhaustive proof of correctness; new scenarios get added here as
-// gaps are found.
-//
-// This package imports only the root grevents package, which is what
-// avoids an import cycle with grevents' own tests importing conformance.
-package conformance
+// distributed adapter) could reuse runBusContract by supplying its own
+// constructor with the same signature. It is not an exhaustive proof of
+// correctness; new scenarios get added here as gaps are found.
+package grevents_test
 
 import (
 	"context"
@@ -26,40 +21,23 @@ import (
 	"github.com/gourdian25/grevents"
 )
 
-// RunOption configures Run's timing tolerances. The zero value (no
-// options) uses conservative defaults suitable for CI.
-type RunOption func(*runConfig)
-
+// runConfig carries the timing tolerances scenarios below poll against.
 type runConfig struct {
 	eventualConsistencyTimeout time.Duration
-}
-
-// WithEventualConsistencyTimeout overrides how long async scenarios poll
-// for eventual delivery before failing. Default: 3s.
-func WithEventualConsistencyTimeout(d time.Duration) RunOption {
-	return func(cfg *runConfig) { cfg.eventualConsistencyTimeout = d }
 }
 
 // newBusFunc is the constructor shape every scenario drives the Bus
 // under test through — identical to grevents.NewBus's own signature.
 type newBusFunc func(opts ...grevents.BusOption) (grevents.Bus, error)
 
-// Run executes the full conformance suite against Bus instances obtained
-// from newBus, freshly constructed (with scenario-appropriate options) for
-// each scenario.
-//
-// Example:
-//
-//	func TestConformance(t *testing.T) {
-//		conformance.Run(t, grevents.NewBus)
-//	}
-func Run(t *testing.T, newBus newBusFunc, opts ...RunOption) {
+// runBusContract executes the full contract suite against Bus instances
+// obtained from newBus, freshly constructed for each scenario. See
+// TestBus_Contract below for the entry point that drives it against
+// grevents.NewBus.
+func runBusContract(t *testing.T, newBus newBusFunc) {
 	t.Helper()
 
 	cfg := &runConfig{eventualConsistencyTimeout: 3 * time.Second}
-	for _, opt := range opts {
-		opt(cfg)
-	}
 
 	t.Run("SyncDeliveryMultipleSubscribers", func(t *testing.T) { testSyncDeliveryMultipleSubscribers(t, newBus) })
 	t.Run("SyncNoSubscribersIsNoop", func(t *testing.T) { testSyncNoSubscribersIsNoop(t, newBus) })
@@ -76,6 +54,7 @@ func Run(t *testing.T, newBus newBusFunc, opts ...RunOption) {
 	t.Run("CloseDrainsWithinTimeout", func(t *testing.T) { testCloseDrainsWithinTimeout(t, newBus) })
 	t.Run("CloseForceStopsAfterTimeout", func(t *testing.T) { testCloseForceStopsAfterTimeout(t, newBus) })
 	t.Run("CloseIdempotent", func(t *testing.T) { testCloseIdempotent(t, newBus) })
+	t.Run("CloseClosesDeadLetterSinkEvenInSyncMode", func(t *testing.T) { testCloseClosesDeadLetterSinkEvenInSyncMode(t, newBus) })
 	t.Run("PublishAfterCloseReturnsErrClosed", func(t *testing.T) { testPublishAfterCloseReturnsErrClosed(t, newBus) })
 	t.Run("SubscribeAfterCloseReturnsErrClosed", func(t *testing.T) { testSubscribeAfterCloseReturnsErrClosed(t, newBus) })
 	t.Run("UnsubscribeStopsDelivery", func(t *testing.T) { testUnsubscribeStopsDelivery(t, newBus) })
@@ -552,6 +531,25 @@ func (panickingDeadLetterSink) List(context.Context, int) ([]grevents.DeadLetter
 }
 func (panickingDeadLetterSink) Close() error { return nil }
 
+// closeTrackingDeadLetterSink records whether Close was ever called on it,
+// used by testCloseClosesDeadLetterSinkEvenInSyncMode to prove a caller-
+// supplied sink's resources are released even when the bus itself is
+// sync-only and never records anything to it.
+type closeTrackingDeadLetterSink struct {
+	closed *atomic.Bool
+}
+
+func (closeTrackingDeadLetterSink) Record(context.Context, grevents.Event, error, int) error {
+	return nil
+}
+func (closeTrackingDeadLetterSink) List(context.Context, int) ([]grevents.DeadLetterEntry, error) {
+	return nil, nil
+}
+func (s closeTrackingDeadLetterSink) Close() error {
+	s.closed.Store(true)
+	return nil
+}
+
 func testDeadLetterSinkPanicDoesNotCrashBus(t *testing.T, newBus newBusFunc) {
 	t.Helper()
 	ctx := context.Background()
@@ -732,6 +730,28 @@ func testCloseIdempotent(t *testing.T, newBus newBusFunc) {
 	}
 	if err := bus.Close(); err != nil {
 		t.Fatalf("second Close: %v, want nil (idempotent)", err)
+	}
+}
+
+// testCloseClosesDeadLetterSinkEvenInSyncMode proves Bus.Close releases a
+// caller-supplied DeadLetterSink's resources even for a sync-only bus,
+// which never delivers anything through it (sync mode never retries, so
+// nothing is ever dead-lettered) — a caller who explicitly wired one up
+// via WithDeadLetterSink still owns it via the bus and expects Close to
+// release it, exactly as it would for an async bus.
+func testCloseClosesDeadLetterSinkEvenInSyncMode(t *testing.T, newBus newBusFunc) {
+	t.Helper()
+	var closed atomic.Bool
+	bus, err := newBus(grevents.WithSync(), grevents.WithDeadLetterSink(closeTrackingDeadLetterSink{closed: &closed}))
+	if err != nil {
+		t.Fatalf("newBus: %v", err)
+	}
+
+	if err := bus.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if !closed.Load() {
+		t.Fatalf("DeadLetterSink.Close was not called by a sync-only bus's Close")
 	}
 }
 
@@ -936,4 +956,10 @@ func testStatsSanity(t *testing.T, newBus newBusFunc) {
 	if after.Delivered <= before.Delivered {
 		t.Fatalf("Stats.Delivered did not increase: before=%d after=%d", before.Delivered, after.Delivered)
 	}
+}
+
+// TestBus_Contract runs the full behavioral contract suite above against
+// grevents.NewBus.
+func TestBus_Contract(t *testing.T) {
+	runBusContract(t, grevents.NewBus)
 }

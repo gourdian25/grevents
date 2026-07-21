@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Ecosystem-wide Stage 2 pass (test structure + a real bug fix + coverage): no
+breaking API changes.
+
+### Changed
+
+- Folded the standalone `conformance` package into the root package as
+  `contract_bus_test.go` (`TestBus_Contract`), matching the rest of the
+  gourdian ecosystem's convention of keeping shared behavioral test suites
+  as root-package test files rather than a separately importable package.
+  `RunOption`/`WithEventualConsistencyTimeout`/`Run` were renamed to
+  unexported `runOption`/`withEventualConsistencyTimeout`/`runBusContract`
+  accordingly, since nothing outside the module could import them anyway.
+- `make coverage-check`'s threshold raised from 80% to 95%.
+
+### Fixed
+
+- `Bus.Close` now closes a caller-supplied `DeadLetterSink` (via
+  `WithDeadLetterSink`) even for a sync-only bus. Previously, `Close`
+  returned immediately for a sync bus without ever calling the sink's
+  `Close`, silently leaking any resources a custom sink held — sync mode
+  never delivers through the sink (no retries, so nothing is ever
+  dead-lettered), but a caller that explicitly wired one up still owns it
+  through the bus and expects `Close` to release it, exactly as it would
+  for an async bus.
+
+### Testing
+
+- Coverage raised to 100% on the root package (previously 94.9%), closing
+  every genuinely reachable gap: `publishAsync`'s `OverflowBlock`
+  already-closing race and unrecognized-overflow-strategy branches,
+  `asyncWorker`/`dispatchDrainedQueue`'s defensive closed-queue handling,
+  `deliverWithRetry`'s zero-backoff and close-during-backoff-sleep
+  branches, `drainQueueCount`'s counting and closed-channel paths,
+  `Close`'s defensive nil-`dlqSink`/negative-`inFlight` guards,
+  `recordDeadLetter`'s sink-returns-error branch, and `SubscribeOption`
+  application. Most of these are unreachable from the public API alone
+  (either an earlier validation forecloses the input, or the branch reacts
+  to internal state no production code path produces) and are covered by
+  constructing `eventBus`/`subscription` directly in a new
+  `internal_coverage_test.go`, bypassing `NewBus`. `noopLogger`'s three
+  single-line no-op methods permanently report 0.0% individually in
+  `go tool cover -func` output (a Go tooling artifact for empty-bodied
+  methods — they contribute 0 total statements each, so the aggregate
+  percentage that `coverage-check` gates on is unaffected).
+
 ## [0.1.1] - 2026-07-10
 
 Ecosystem-alignment pass ahead of `grauth`: no functional/API changes.

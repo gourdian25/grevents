@@ -222,9 +222,11 @@ type Stats struct {
 	QueueDepth     int64
 }
 
-// eventBus is the concrete Bus implementation. Async-only fields
-// (queue, closeChan, wg, workerCount, overflow, drainTimeout, retry,
-// dlqSink, inFlight) are zero-valued and unused when async is false.
+// eventBus is the concrete Bus implementation. queue, closeChan, and wg
+// are only ever populated when async is true; workerCount, overflow,
+// drainTimeout, retry, and dlqSink are always populated from busConfig
+// regardless of delivery mode, but only read by the async delivery path
+// (async.go) — a sync-only bus carries them without ever consulting them.
 type eventBus struct {
 	async    bool
 	registry *registry
@@ -369,8 +371,29 @@ func (b *eventBus) Close() error {
 	if !b.closed.CompareAndSwap(false, true) {
 		return nil // idempotent
 	}
+
+	closeDLQSink := func() {
+		if b.dlqSink == nil {
+			return
+		}
+		// A misbehaving DeadLetterSink.Close must not crash whatever
+		// goroutine called Bus.Close (often the caller's own, via
+		// defer bus.Close()) — same panic-safety guarantee as every
+		// other user-pluggable extension point, see
+		// middleware_recovery.go.
+		defer func() { _ = recover() }()
+		_ = b.dlqSink.Close()
+	}
+
 	if !b.async {
-		return nil // sync-only bus: no queue, no workers, nothing to drain
+		// A sync-only bus never delivers through dlqSink (sync mode
+		// never retries, so nothing is ever dead-lettered), but a
+		// caller may still have supplied one via WithDeadLetterSink
+		// and expects Close to release whatever resources it holds —
+		// so it still gets closed here, just with nothing else to
+		// drain.
+		closeDLQSink()
+		return nil
 	}
 
 	close(b.closeChan)
@@ -402,17 +425,7 @@ func (b *eventBus) Close() error {
 	}
 	b.st.droppedOnClose.Store(straggled + uint64(inFlight)) //nolint:gosec // guarded non-negative immediately above
 
-	if b.dlqSink != nil {
-		// A misbehaving DeadLetterSink.Close must not crash whatever
-		// goroutine called Bus.Close (often the caller's own, via
-		// defer bus.Close()) — same panic-safety guarantee as every
-		// other user-pluggable extension point, see
-		// middleware_recovery.go.
-		func() {
-			defer func() { _ = recover() }()
-			_ = b.dlqSink.Close()
-		}()
-	}
+	closeDLQSink()
 
 	if timedOut {
 		return fmt.Errorf("grevents: drain timeout after %s, %d event(s) undelivered: %w",

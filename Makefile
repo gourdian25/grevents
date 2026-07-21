@@ -16,7 +16,7 @@
 GO              := go
 GOLANGCI_LINT   := golangci-lint
 COVERAGE_DIR    := test_coverage
-COVERAGE_MIN    := 80
+COVERAGE_MIN    := 95
 
 # VERSION must be explicitly provided for release/tag
 VERSION ?=
@@ -106,10 +106,11 @@ coverage-summary: $(COVERAGE_DIR) ## Print per-function coverage summary
 	$(GO) tool cover -func=$(COVERAGE_DIR)/coverage.out
 
 .PHONY: coverage-check
-# Only the root package is checked: conformance is test-only infrastructure
-# (no _test.go files of its own — its scenarios run via the root package's
-# TestConformance) and example is a runnable demo, not library code under
-# test — matching grcache's own coverage-check convention exactly.
+# Only the root package is checked: example is a runnable demo, not
+# library code under test — matching grcache's own coverage-check
+# convention exactly. The former conformance/ subpackage was folded into
+# the root package's own contract_bus_test.go, so there is nothing else
+# to exclude.
 coverage-check: $(COVERAGE_DIR) ## Fail if root package coverage drops below COVERAGE_MIN
 	@out=$$($(GO) test -cover . 2>&1); \
 	echo "$$out"; \

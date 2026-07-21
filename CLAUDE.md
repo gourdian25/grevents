@@ -2,63 +2,57 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Current state: pre-implementation
+## Overview
 
-This repository contains **no Go code yet** — no `go.mod`, no source files, no Makefile. The only content is [docs/plan/grevents-plan.md](docs/plan/grevents-plan.md), a detailed scope/spec document (untracked in git as of this writing). Before writing any code here, read that plan document in full — it is long and specific, and this file only summarizes it. Do not treat the summary below as a substitute for reading the plan doc's actual "Instructions for the IDE agent" section (§0) and "Evaluation questions for the agent" section (§9), which require reading three sibling repos before implementation starts.
+grevents is a lightweight, pluggable, **in-process** event bus for the gourdian ecosystem — decouples producers of state changes (e.g. `grauth` assigning a role) from consumers that react to them (e.g. `graudit`, `grcache` tag invalidation), without the producer knowing consumers exist. It is explicitly **not** a Kafka/NATS/RabbitMQ replacement: it runs entirely within a single process's memory, two replicas never see each other's events, and a process restart loses any queued or dead-lettered events — see `docs.go` for the full statement of scope and delivery guarantees before assuming more than it promises.
 
-## Mandatory pre-implementation research
+It is a library — there is nothing to build or run except lint and test. The whole implementation is a flat `package grevents` at the repo root; there are no subpackages. `example/example.go` (`package main`) is a standalone runnable demo, not part of the test surface. `docs/plan/grevents-plan.md` is the original design/research document that predates the code; the implementation and this file are now authoritative — treat the plan doc as historical context, not a spec to re-derive behavior from.
 
-The plan explicitly requires reading these sibling repos **in full** before writing code, because grevents is meant to reuse their patterns rather than reinvent them:
+## Commands
 
-- **`~/Dev/gourdian25/grlog`** — study its async logging worker pool (queue + overflow strategy: block/drop-oldest/drop-newest — confirm exact names in `grlog.go`, don't guess) and its race-safe `Close()`/drain pattern. grevents' async delivery path and shutdown should mirror this shape, not invent a new one. Also confirm the structural `Logger` interface pattern.
-- **`~/Dev/gourdian25/grcache`** — study its `sync.Once`-guarded `Close()` idempotency, its sentinel-error style (`errors.Is`-compatible, no `IsX(err) bool` helpers), its optional-logger injection (structural interface, nil-safe, no hard grlog dependency), and its `conformance/` shared-test-suite pattern (`conformance.Run(t, newCache, opts...)`). Also review the `Pipeline()` vs `TxPipeline()` atomicity bug noted in grcache's own CLAUDE.md/CHANGELOG — grevents must not repeat the "docs claim a guarantee the code doesn't enforce" mistake (e.g. "at-least-once", "atomic", "guaranteed delivery" must be backed by actual code, not aspirational wording).
-- **`~/Dev/gourdian25/gourdiantoken`** — study its sentinel error naming/wrapping conventions and its background-cleanup-goroutine pattern (relevant to dead-letter-sink retention/sweeping).
-
-Only after these reads should an implementation plan be produced and reviewed — see plan doc §9 for the specific questions to answer first (exact overflow-strategy names, whether grlog's queue is a buffered channel or something else, whether gourdiantoken already has exponential-backoff-with-jitter to reuse, whether `errors.Join` has ecosystem precedent, and whether panic recovery should be always-on).
-
-## What grevents is
-
-A lightweight, pluggable, **in-process** event bus for the gourdian ecosystem — decouples producers of state changes (e.g. `grauth` assigning a role) from consumers that react to them (e.g. `graudit`, `grcache` tag invalidation), without the producer knowing consumers exist. It is explicitly **not** a Kafka/NATS/RabbitMQ replacement; cross-process durable delivery is out of scope for v1 and would be a separate adapter package later.
-
-Planned public API surface (`package grevents`, root package): `Bus` interface (`Publish`, `Subscribe`, `Use`, `Stats`, `Close`), `Event`/`HandlerFunc`/`Middleware`/`Unsubscribe` types, sentinel errors (`ErrQueueFull`, `ErrClosed`, `ErrNoSubscribers`), and a `NewBus(opts ...BusOption)` constructor with functional options (`WithAsync`, `WithSync`, `WithRetry`, `WithDeadLetterSink`, `WithLogger`, `WithWorkerCount`). Full signatures are in plan doc §3.
-
-## Planned architecture (from the plan doc — subject to revision during implementation)
-
-```
-grevents (root)
-├── bus.go              // Bus interface, Event, HandlerFunc, Middleware, sentinel errors
-├── options.go          // BusOption, all With* constructors
-├── async.go            // async delivery: queue + worker pool (ported from grlog's async pattern)
-├── sync.go              // sync delivery path
-├── retry.go               // backoff + retry logic
-├── deadletter/
-│   └── memory.go           // default in-memory DeadLetterSink (bounded ring buffer)
-├── middleware/
-│   ├── logging.go            // optional logging middleware
-│   ├── recovery.go             // panic-recovery — always-on by default, not opt-in
-│   └── tracing.go                // stub extension point only, no real tracing dep in v1
-└── conformance/
-    └── conformance.go            // shared behavioral test suite (mirrors grcache's)
+```sh
+make test               # go test -cover ./...
+make race                # go test -race ./...  (mandatory before any commit touching delivery code)
+make bench                # go test -bench=. -benchmem -run=^$ ./...
+make lint / lint-fix       # golangci-lint run [--fix] ./...
+make coverage-summary       # per-function coverage
+make coverage-check           # root package must meet a 95% threshold (COVERAGE_MIN in the Makefile)
+make ci                          # golangci-lint + test
 ```
 
-Key design decisions already made in the plan (validate, don't relitigate, unless implementation reveals a real problem):
+Run a single test with `go test -run TestName ./...` (add `-race` for anything touching delivery/shutdown — see `race_test.go`, which is meaningless without `-race`).
 
-- **Delivery mode is fixed at bus construction** (`WithSync()` vs `WithAsync(...)`), not chosen per-`Publish` call.
-- **Sync mode has no retry by default** — retrying synchronously would block the caller for the full backoff duration. A separate opt-in (`WithSyncRetry`) would be needed if that's ever wanted.
-- **Async mode retries per-subscriber independently** — one slow/failing subscriber must not block delivery to other subscribers of the same event.
-- **No wildcard/glob topic matching in v1** — `Subscribe` is exact-string match only.
-- **Delivery guarantees are precise, not aspirational**: at-least-once for async (a handler may run more than once if a retry races a late-failing success), at-most-once for sync within one `Publish` call, no cross-process dedup ever (single-process only). State this plainly in doc comments.
-- **Panic recovery is always-on**, wrapping every handler invocation, and also covers `Logger`/`DeadLetterSink` panics (see `safeLogErrorf`/`recordDeadLetter` in `middleware_recovery.go`) — none of grevents' user-pluggable extension points can crash the bus or host process.
-- **`Close()` is idempotent** (`sync.Once`, matching grlog/grcache/gourdiantoken), stops accepting new `Publish` calls immediately, drains the async queue up to a configurable timeout, then force-stops and reports how many events were dropped.
-- **No hard dependency on grlog** — its `Logger` is consumed only as a structural interface, same pattern as grcache.
+Releases: `make release VERSION=vX.Y.Z` (tags, pushes, runs GoReleaser). VERSION is required.
 
-## Sibling repo conventions to match once code exists
+## Architecture
 
-Based on `grlog`, `grcache`, and `gourdiantoken` (all already-established gourdian-ecosystem repos):
+Everything is in package `grevents`, structured around one interface and its supporting concerns, each in its own file:
 
-- Module path will be `github.com/gourdian25/grevents`; single flat root package unless a genuine multi-backend need arises (grcache's subpackage-per-backend split exists because backends pull in different heavy dependencies — grevents has no such need in v1, since it ships one in-memory implementation).
-- Source files use a `// File: <relative-path>` header maintained by the `bark` tool (see sibling repos' `.bark.toml`/`bark.txt`) — check whether this repo adopts the same tool before assuming it, but match the convention if so.
-- Expect a `Makefile` with targets equivalent to siblings' `test`, `race` (mandatory — this package is concurrency-heavy), `bench`, `lint`, `coverage-check`, `release VERSION=vX.Y.Z`. Race detector coverage is more important here than in any sibling repo, per the plan's testing section (§6).
-- `docs.go` for package-level godoc only, no logic — matches all three siblings.
-- Sentinel errors: `errors.Is`-compatible, defined once, no `IsX(err) bool` helper functions (grcache's `errors.go` is the closest precedent since grevents has no storage backends to model after gourdiantoken's per-backend errors).
-- Once `docs/plan/grevents-plan.md` has served its purpose, treat it as historical context (matching how grcache's CLAUDE.md treats its own `docs/plan/grcache-plan.md`) — the actual code and this file become authoritative, not the plan.
+- **`Bus`** (`bus.go`) — the entry point: `Publish`, `Subscribe`, `Use`, `Stats`, `Close`. `NewBus(opts ...BusOption)` constructs the only implementation, `eventBus`. Delivery mode (sync vs async) is fixed at construction time, not chosen per `Publish` call.
+- **`options.go`** — `BusOption`/`busConfig` (functional options: `WithSync`, `WithAsync`, `WithRetry`, `WithDeadLetterSink`, `WithLogger`, `WithWorkerCount`, `WithDrainTimeout`) and `OverflowStrategy` (`OverflowBlock`, `OverflowDrop`, `OverflowReject` — no drop-oldest, no inline-sync-fallback; see the type's doc comment for why not).
+- **`sync.go`** / **`async.go`** — the two delivery paths. Sync (`publishSync`) invokes every subscriber through the middleware chain and blocks until all return, aggregating failures with `errors.Join`; no retry, ever. Async (`publishAsync`) enqueues onto a buffered channel per the configured `OverflowStrategy`; a pool of worker goroutines (`asyncWorker`) dequeues and fans each event out to **one independent goroutine per subscriber** (`dispatchToSubscribers`) — this fan-out, not worker count, is what guarantees one slow/failing subscriber's retries never block delivery to another subscriber or to the next queued event. `deliverWithRetry` owns one `(event, subscriber)` pair's full retry-with-backoff lifecycle before handing off to the `DeadLetterSink` on exhaustion.
+- **`retry.go`** — `computeBackoff`: Full Jitter exponential backoff (`random(0, min(cap, base*2^attempt))`), capped by `defaultMaxBackoff` (30s) unless the cap would overflow `time.Duration`, guarded explicitly.
+- **`deadletter.go`** — `DeadLetterSink` interface (`Record`, `List`, `Close`) and the default `memoryDeadLetterSink`: a capacity-bounded ring buffer, best-effort recent history, not a durable log.
+- **`subscriber.go`** — `registry`: the topic → subscriptions index. `snapshot` returns a copy so delivery never holds the registry lock while invoking handlers.
+- **`middleware_recovery.go`** — `invokeHandler` is the single funnel every delivery path calls through; panic recovery is always-on (not a `Middleware`, not configurable) and extends to `Logger`/`DeadLetterSink` panics too (`safeLogErrorf`, `recordDeadLetter`) — none of grevents' user-pluggable extension points can crash the bus or host process.
+- **`middleware_logging.go`** / **`middleware_tracing.go`** — optional, opt-in middleware (`Use(...)`); `TracingMiddleware` is a pure-passthrough stub extension point for a future real tracing integration.
+- **`logger.go`** — `Logger` is a minimal structural interface (`Infof`/`Warnf`/`Errorf`), satisfied by `*grlog.Logger` without grevents importing grlog (grlog is a test-only dependency of this module — see `logger_test.go`).
+- **`errors.go`** — sentinel errors for `errors.Is` (`ErrClosed`, `ErrQueueFull`, `ErrInvalidConfig`, `ErrDrainTimeout`, `ErrNoSubscribers`). No `IsX(err) bool` helpers, by convention.
+- **`stats.go`** — lock-free `atomic`-backed counters backing `Bus.Stats`.
+
+### Delivery guarantees (precise, not aspirational)
+
+Async is at-least-once for anything successfully enqueued (a retry may race a late-failing success, so a handler can run more than once); an event discarded by `OverflowDrop` or rejected by `OverflowReject` never entered the delivery path and is outside this guarantee. Sync is at-most-once per subscriber per `Publish` call, no retry. There is no cross-process dedup, ever, in either mode. See `docs.go` for the full text — match this precision in any new doc comments rather than reaching for words like "guaranteed" or "atomic" that the code doesn't actually enforce.
+
+### Shutdown
+
+`Close()` is idempotent (`atomic.Bool` CompareAndSwap), stops accepting new `Publish`/`Subscribe` calls immediately, and for an async bus drains the queue up to `WithDrainTimeout` before force-stopping. `Stats().DroppedOnClose` remains readable after `Close` returns (the one method that doesn't itself return `ErrClosed` post-close) — it reports both genuine drain-timeout shortfall and the rare race-window sweep of an event that was enqueued between a concurrent `Publish` call's closed-check and `Close`'s own CAS. `Close` always releases a configured `DeadLetterSink` (via its `Close` method, panic-safe) regardless of delivery mode, even though a sync-only bus never delivers anything through it.
+
+## Testing conventions
+
+- `contract_bus_test.go` (`package grevents_test`) is the primary test artifact — a shared behavioral suite (`runBusContract`, run via `TestBus_Contract` against `grevents.NewBus`) covering sync delivery, async delivery with retry/dead-lettering, all three overflow strategies under genuine concurrent load, panic recovery, middleware ordering, and close/drain timing. It was originally a separate, publicly-importable `conformance` package (so a hypothetical future `Bus` implementation could reuse it) but has been folded into the root package's own tests for consistency with the rest of the gourdian ecosystem — `runBusContract` still takes a `newBus` constructor function, so a future backend could still drive it by copying the pattern, just not by importing it directly.
+- `internal_coverage_test.go` (`package grevents`, white-box) constructs `eventBus`/`subscription` directly — bypassing `NewBus` — to reach a handful of branches unreachable from the public API alone: either an earlier validation already forecloses the bad input (e.g. `busConfig.validate` rejects an invalid `OverflowStrategy` before an `eventBus` is ever built), or the branch reacts to internal state no production code path produces (e.g. a closed `queue` channel — only `closeChan` is ever closed by real code; a negative `inFlight` counter).
+- `retry_test.go` (`package grevents`) unit-tests `computeBackoff` directly.
+- `race_test.go` hammers sync and async buses concurrently; meaningless without `-race` — the race detector, not the assertions, is what it actually checks.
+- Other `*_test.go` files (`bench_test.go`, `deadletter_test.go`, `logger_test.go`, `middleware_test.go`, `options_test.go`) are `package grevents_test`, organized by concern rather than mirroring source files 1:1.
+- Coverage is measured on `.` (root package) via `make coverage-check`, not `./...` — `example/` is a runnable demo with no tests of its own. `noopLogger`'s three single-line no-op methods (`logger.go`) permanently report 0.0% individually in `go tool cover -func` output regardless of being exercised — a Go tooling artifact for completely empty-bodied methods (they contribute 0 total statements, so the aggregate percentage `coverage-check` actually gates on is unaffected).
