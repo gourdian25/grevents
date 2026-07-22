@@ -52,6 +52,16 @@ breaking API changes.
   methods — they contribute 0 total statements each, so the aggregate
   percentage that `coverage-check` gates on is unaffected).
 
+### Documentation
+
+- README: stated the actual verified test-coverage figure (100.0% on the
+  root package, `make coverage-check`, 2026-07-22) near the Testing section
+  — previously only the 95% enforced gate was mentioned in prose, with no
+  real number given.
+- README: linked `SECURITY.md` and `CHANGELOG.md` from the closing License
+  section (previously `SECURITY.md` existed in the repo but wasn't linked
+  from the README at all).
+
 ## [0.1.1] - 2026-07-10
 
 Ecosystem-alignment pass ahead of `grauth`: no functional/API changes.

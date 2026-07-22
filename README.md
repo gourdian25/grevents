@@ -202,6 +202,8 @@ make bench           # sync vs async throughput, middleware chain cost
 make coverage-check  # root package must meet a 95% coverage threshold
 ```
 
+Current root-package coverage is **100.0%**, verified via `make coverage-check` on 2026-07-22 — comfortably above the 95% gate that command enforces.
+
 [`contract_bus_test.go`](contract_bus_test.go) is the primary test artifact — a shared behavioral test suite (`TestBus_Contract`) covering sync delivery, async delivery with retry and dead-lettering, all three overflow strategies under genuine concurrent load, panic recovery, middleware ordering, and `Close` draining both within and past its timeout. It was originally a separate `conformance` package (importable so a hypothetical future `Bus` implementation could reuse it) but has since been folded directly into the root package's own tests for consistency with the rest of the gourdian ecosystem.
 
 ## 🤝 Contributing
@@ -211,3 +213,5 @@ Issues and PRs are welcome at [github.com/gourdian25/grevents](https://github.co
 ## 📄 License
 
 MIT — see [LICENSE](LICENSE).
+
+See [CHANGELOG.md](CHANGELOG.md) for release history and [SECURITY.md](SECURITY.md) to report a vulnerability privately instead of opening a public issue.
