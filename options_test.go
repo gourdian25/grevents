@@ -84,6 +84,7 @@ type recordingLogger struct {
 	record func(string)
 }
 
-func (r recordingLogger) Infof(format string, args ...interface{})  { r.record("info") }
-func (r recordingLogger) Warnf(format string, args ...interface{})  { r.record("warn") }
-func (r recordingLogger) Errorf(format string, args ...interface{}) { r.record("error") }
+func (r recordingLogger) Debug(msg string, args ...any) { r.record("debug") }
+func (r recordingLogger) Info(msg string, args ...any)  { r.record("info") }
+func (r recordingLogger) Warn(msg string, args ...any)  { r.record("warn") }
+func (r recordingLogger) Error(msg string, args ...any) { r.record("error") }

@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/gourdian25/grlog"
@@ -178,14 +179,15 @@ func demoOverflowReject(ctx context.Context) {
 	fmt.Printf("rejected %d/20 rapid publishes once the size-1 queue filled\n", rejected)
 }
 
-// demoMiddlewareWithGrlog shows grlog interoperability: *grlog.Logger
+// demoMiddlewareWithGrlog shows grlog interoperability: slog.New(grlog.NewSlogHandler(...))
 // satisfies grevents.Logger with no adapter needed, and LoggingMiddleware
 // logs every handler invocation's outcome through it.
 func demoMiddlewareWithGrlog(ctx context.Context) {
 	fmt.Println("\n--- middleware + grlog logging ---")
 
-	logger := grlog.NewDefaultLogger()
-	defer logger.Close()
+	grlogger := grlog.NewDefaultLogger()
+	defer func() { _ = grlogger.Close() }()
+	logger := slog.New(grlog.NewSlogHandler(grlogger))
 
 	bus, err := grevents.NewBus(grevents.WithSync(), grevents.WithLogger(logger))
 	if err != nil {

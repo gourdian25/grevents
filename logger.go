@@ -4,31 +4,33 @@ package grevents
 
 // Logger is the minimal logging interface grevents accepts for optional
 // diagnostic logging (recovered panics, dead-letter recording failures,
-// drain-timeout warnings).
+// drain-timeout warnings, queue overflow). Its four methods match
+// *slog.Logger's own signatures exactly, so *slog.Logger satisfies it
+// structurally.
 //
 // Notes:
-//   - Satisfied structurally by *grlog.Logger's printf-style methods
-//     (Infof/Warnf/Errorf) — grevents itself does not import grlog; see
-//     logger_test.go for a compile-time proof (var _ Logger =
-//     (*grlog.Logger)(nil))
+//   - grevents itself does not import grlog or log/slog; see logger_test.go
+//     for a compile-time proof (var _ Logger = (*slog.Logger)(nil))
 //   - A nil Logger passed via WithLogger is replaced with NopLogger()
 //     once, at construction time, so every internal call site can assume
 //     a non-nil Logger
 //
-// Use case: implement this interface yourself, or pass a *grlog.Logger
-// directly, to route grevents' internal diagnostics into an existing
-// logging pipeline.
+// Use case: implement this interface yourself, or pass a *slog.Logger
+// directly (e.g. slog.New(grlog.NewSlogHandler(logger))), to route
+// grevents' internal diagnostics into an existing logging pipeline.
 type Logger interface {
-	Infof(format string, args ...interface{})
-	Warnf(format string, args ...interface{})
-	Errorf(format string, args ...interface{})
+	Debug(msg string, args ...any)
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
 }
 
 type noopLogger struct{}
 
-func (noopLogger) Infof(string, ...interface{})  {}
-func (noopLogger) Warnf(string, ...interface{})  {}
-func (noopLogger) Errorf(string, ...interface{}) {}
+func (noopLogger) Debug(string, ...any) {}
+func (noopLogger) Info(string, ...any)  {}
+func (noopLogger) Warn(string, ...any)  {}
+func (noopLogger) Error(string, ...any) {}
 
 // NopLogger returns a Logger whose methods do nothing.
 //

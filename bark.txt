@@ -8,9 +8,7 @@
 ├── async.go
 ├── bench_test.go
 ├── bus.go
-├── bus_test.go
-├── conformance/
-│   └── conformance.go
+├── contract_bus_test.go
 ├── deadletter.go
 ├── deadletter_test.go
 ├── docs/
@@ -22,6 +20,7 @@
 │   └── example.go
 ├── go.mod
 ├── go.sum
+├── internal_coverage_test.go
 ├── logger.go
 ├── logger_test.go
 ├── middleware_logging.go
@@ -37,4 +36,4 @@
 ├── subscriber.go
 └── sync.go
 
-4 directories, 33 files
+3 directories, 33 files

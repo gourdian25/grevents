@@ -11,7 +11,7 @@ import "context"
 //   - logger: Logger — nil is treated as NopLogger()
 //
 // Returns:
-//   - Middleware: logs at Infof on success, Warnf on failure (the
+//   - Middleware: logs at Info on success, Warn on failure (the
 //     underlying error is not swallowed — it is still returned unchanged
 //     for the rest of the chain and for Bus.Publish's caller)
 //
@@ -26,10 +26,10 @@ func LoggingMiddleware(logger Logger) Middleware {
 	return func(next HandlerFunc) HandlerFunc {
 		return func(ctx context.Context, event Event) error {
 			if err := next(ctx, event); err != nil {
-				logger.Warnf("grevents: handler failed for topic %q: %v", event.Topic, err)
+				logger.Warn("grevents: handler failed", "topic", event.Topic, "error", err)
 				return err
 			}
-			logger.Infof("grevents: delivered event for topic %q", event.Topic)
+			logger.Info("grevents: delivered event", "topic", event.Topic)
 			return nil
 		}
 	}
