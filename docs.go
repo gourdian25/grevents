@@ -3,7 +3,7 @@
 // Package grevents provides a lightweight, pluggable, in-process event bus
 // for the gourdian ecosystem.
 //
-// Overview:
+// # Overview
 //
 // grevents decouples producers of state changes (e.g. grauth assigning a
 // role) from consumers that react to them (graudit recording it, grcache
@@ -19,7 +19,7 @@
 // delivery at scale needs a separate adapter package built on top of an
 // actual message broker.
 //
-// Getting Started:
+// # Getting Started
 //
 //	bus, err := grevents.NewBus() // sync delivery by default
 //	if err != nil {
@@ -41,7 +41,7 @@
 //	    Payload: someStruct{},
 //	})
 //
-// Delivery Modes:
+// # Delivery Modes
 //
 // A Bus is constructed for either synchronous or asynchronous delivery;
 // the mode is fixed at construction time via BusOption, not chosen per
@@ -64,7 +64,9 @@
 // one slow or failing subscriber's retries never block delivery to other
 // subscribers of the same event, nor delivery of other queued events.
 //
-// Delivery Guarantees (read this before assuming more than it says):
+// # Delivery Guarantees
+//
+// Read this before assuming more than it says:
 //
 //   - Async mode is at-least-once for any event that was successfully
 //     enqueued: a retried handler may run more than once if a retry races
@@ -83,13 +85,13 @@
 //     grevents' user-pluggable extension points can crash the bus or the
 //     host process. This is not optional and cannot be disabled.
 //
-// Topics:
+// # Topics
 //
 // Subscribe matches topics by exact string equality only. There is no
 // wildcard or glob matching in v1 (e.g. "role.*" does not match
 // "role.assigned").
 //
-// Middleware:
+// # Middleware
 //
 // Use appends a Middleware to the chain applied to every handler
 // invocation, in the order added. Middleware is snapshotted at delivery
@@ -98,7 +100,7 @@
 // in-flight call, but is guaranteed to apply to every delivery that reads
 // the chain after it was added.
 //
-// Dead Letters:
+// # Dead Letters
 //
 // In async mode, an event that exhausts its configured retry attempts for
 // a given subscriber is handed to a DeadLetterSink instead of being
@@ -108,7 +110,7 @@
 // and once the buffer is at capacity, each new dead-lettered event
 // silently overwrites the oldest entry.
 //
-// Shutdown:
+// # Shutdown
 //
 // Close stops accepting new Publish and Subscribe calls immediately
 // (both return ErrClosed thereafter) and, for an async bus, drains the
