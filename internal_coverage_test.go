@@ -5,7 +5,6 @@ package grevents
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 )
@@ -183,14 +182,15 @@ func TestRegistrySubscribe_AppliesSubscribeOptions(t *testing.T) {
 	}
 }
 
-// capturingLogger records every Errorf call's formatted message, used by
+// capturingLogger records every Error call's message, used by
 // TestRecordDeadLetter_SinkRecordErrorIsLogged below.
 type capturingLogger struct{ errors []string }
 
-func (l *capturingLogger) Infof(string, ...interface{}) {}
-func (l *capturingLogger) Warnf(string, ...interface{}) {}
-func (l *capturingLogger) Errorf(format string, args ...interface{}) {
-	l.errors = append(l.errors, fmt.Sprintf(format, args...))
+func (l *capturingLogger) Debug(string, ...any) {}
+func (l *capturingLogger) Info(string, ...any)  {}
+func (l *capturingLogger) Warn(string, ...any)  {}
+func (l *capturingLogger) Error(msg string, args ...any) {
+	l.errors = append(l.errors, msg)
 }
 
 // erroringDeadLetterSink returns a (non-panicking) error from Record,

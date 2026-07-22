@@ -10,6 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Ecosystem-wide Stage 2 pass (test structure + a real bug fix + coverage): no
 breaking API changes.
 
+### Changed (breaking)
+
+- `Logger`'s three printf-style methods (`Infof`/`Warnf`/`Errorf(format
+  string, args ...interface{})`) replaced with four `log/slog`-shaped
+  methods (`Debug`/`Info`/`Warn`/`Error(msg string, args ...any)`), matching
+  `*slog.Logger`'s own signatures exactly so any slog-based logger —
+  including `*grlog.Logger` via `slog.New(grlog.NewSlogHandler(...))` —
+  satisfies it with no adapter. Allowed pre-1.0; consistent with the same
+  change landing across grcache/graudit/grpolicy/grnoti/gourdiantoken in
+  this pass. Real structured field values (previously flattened into
+  printf format strings) now reach any structured-output logger intact.
+
+### Added
+
+- `async.go`'s `publishAsync` now logs a `Warn`-level message when an event
+  is actually dropped (`OverflowDrop`) or rejected (`OverflowReject`) due to
+  a full queue — previously silent, leaving no log-level visibility into
+  loss without polling `Stats()`. Fires only on the exceptional event
+  itself, never per-publish, so it cannot become noisy under normal load.
+
 ### Changed
 
 - Folded the standalone `conformance` package into the root package as

@@ -27,6 +27,7 @@ func (b *eventBus) publishAsync(ctx context.Context, event Event) error {
 		case b.queue <- event:
 			return nil
 		default:
+			b.logger.Warn("grevents: event dropped, queue full", "topic", event.Topic)
 			return nil // silently dropped; not enqueued, outside the delivery guarantee
 		}
 	case OverflowReject:
@@ -34,6 +35,7 @@ func (b *eventBus) publishAsync(ctx context.Context, event Event) error {
 		case b.queue <- event:
 			return nil
 		default:
+			b.logger.Warn("grevents: event rejected, queue full", "topic", event.Topic)
 			return ErrQueueFull
 		}
 	default:

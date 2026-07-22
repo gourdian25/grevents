@@ -329,7 +329,13 @@ func burstPublish(bus grevents.Bus, topic string, n int) []error {
 
 func testOverflowReject(t *testing.T, newBus newBusFunc) {
 	t.Helper()
-	bus, err := newBus(grevents.WithAsync(1, grevents.OverflowReject), grevents.WithWorkerCount(1))
+	var warns int64
+	logger := recordingLogger{record: func(level string) {
+		if level == "warn" {
+			atomic.AddInt64(&warns, 1)
+		}
+	}}
+	bus, err := newBus(grevents.WithAsync(1, grevents.OverflowReject), grevents.WithWorkerCount(1), grevents.WithLogger(logger))
 	if err != nil {
 		t.Fatalf("newBus: %v", err)
 	}
@@ -354,12 +360,21 @@ func testOverflowReject(t *testing.T, newBus newBusFunc) {
 	if accepted == 0 {
 		t.Fatalf("0/%d concurrent publishes were accepted; want at least 1 to succeed", burstSize)
 	}
+	if atomic.LoadInt64(&warns) == 0 {
+		t.Fatal("expected at least one Warn-level log for a rejected event, got none")
+	}
 }
 
 func testOverflowDrop(t *testing.T, newBus newBusFunc, cfg *runConfig) {
 	t.Helper()
 	var delivered atomic.Int64
-	bus, err := newBus(grevents.WithAsync(1, grevents.OverflowDrop), grevents.WithWorkerCount(1))
+	var warns int64
+	logger := recordingLogger{record: func(level string) {
+		if level == "warn" {
+			atomic.AddInt64(&warns, 1)
+		}
+	}}
+	bus, err := newBus(grevents.WithAsync(1, grevents.OverflowDrop), grevents.WithWorkerCount(1), grevents.WithLogger(logger))
 	if err != nil {
 		t.Fatalf("newBus: %v", err)
 	}
@@ -399,6 +414,9 @@ func testOverflowDrop(t *testing.T, newBus newBusFunc, cfg *runConfig) {
 	if delivered.Load() >= int64(burstSize) {
 		t.Fatalf("delivered %d/%d events against a size-1 queue with OverflowDrop; want strictly fewer than %d (at least one dropped)",
 			delivered.Load(), burstSize, burstSize)
+	}
+	if atomic.LoadInt64(&warns) == 0 {
+		t.Fatal("expected at least one Warn-level log for a dropped event, got none")
 	}
 }
 
@@ -598,16 +616,17 @@ func testDeadLetterSinkPanicDoesNotCrashBus(t *testing.T, newBus newBusFunc) {
 	}
 }
 
-// panickingLogger is a Logger whose Errorf always panics, used to prove a
+// panickingLogger is a Logger whose Error always panics, used to prove a
 // misbehaving Logger cannot crash the bus even when it is called from
 // within a panic-recovery block that is already unwinding a different
-// panic (see grevents' middleware_recovery.go: safeLogErrorf).
+// panic (see grevents' middleware_recovery.go: safeLogError).
 type panickingLogger struct{}
 
-func (panickingLogger) Infof(string, ...interface{}) {}
-func (panickingLogger) Warnf(string, ...interface{}) {}
-func (panickingLogger) Errorf(string, ...interface{}) {
-	panic("conformance: Logger.Errorf panics")
+func (panickingLogger) Debug(string, ...any) {}
+func (panickingLogger) Info(string, ...any)  {}
+func (panickingLogger) Warn(string, ...any)  {}
+func (panickingLogger) Error(string, ...any) {
+	panic("conformance: Logger.Error panics")
 }
 
 func testLoggerPanicDuringRecoveryDoesNotCrashBus(t *testing.T, newBus newBusFunc) {

@@ -45,7 +45,7 @@ together:
 - 🛡️ **Panic-safe by default** — a panic in a handler, middleware, `Logger`, or `DeadLetterSink` is always recovered; none of grevents' user-pluggable extension points can crash the bus or the host process, and this is not optional
 - 🧵 **Honest shutdown** — `Close` drains within a configurable timeout and tells you exactly how many events it couldn't finish, rather than pretending everything always completes
 - 📊 **Built-in stats** — published/delivered/failed/dead-lettered counters and queue depth via `Stats()`
-- 🪵 **grlog interoperability** — `*grlog.Logger` satisfies grevents' `Logger` interface with zero adapter code
+- 🪵 **`log/slog`-shaped `Logger`** — any `*slog.Logger`, including one backed by grlog via `slog.New(grlog.NewSlogHandler(...))`, satisfies grevents' `Logger` interface with no adapter code
 
 ## 📚 Table of Contents
 
@@ -224,13 +224,17 @@ Middleware is snapshotted at *delivery* time, not `Subscribe` time — a `Use` c
 ### grlog interoperability
 
 ```go
-import "github.com/gourdian25/grlog"
+import (
+    "log/slog"
 
-logger := grlog.NewDefaultLogger()
+    "github.com/gourdian25/grlog"
+)
+
+logger := slog.New(grlog.NewSlogHandler(grlog.NewDefaultLogger()))
 bus, _ := grevents.NewBus(grevents.WithLogger(logger))
 ```
 
-`*grlog.Logger`'s `Infof`/`Warnf`/`Errorf` methods satisfy grevents' `Logger` interface structurally — grevents itself never imports grlog (it's a test-only dependency of this module; see `logger_test.go`).
+`Logger`'s `Debug`/`Info`/`Warn`/`Error(msg string, args ...any)` methods match `*slog.Logger`'s own signatures exactly, so `*slog.Logger` — including one backed by grlog via `slog.New(grlog.NewSlogHandler(...))` — satisfies grevents' `Logger` interface structurally, with no adapter. grevents itself never imports grlog or log/slog (grlog is a test-only dependency of this module; see `logger_test.go`).
 
 ## ⚖️ Delivery Guarantees
 
