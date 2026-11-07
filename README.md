@@ -4,7 +4,7 @@
 [![Go Version](https://img.shields.io/badge/go-1.26.4+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-A lightweight, pluggable, **in-process** event bus for the gourdian ecosystem. It decouples producers of state changes (e.g. `grauth` assigning a role) from consumers that react to them (`graudit` recording it, `grcache` invalidating a related tag, a future notification system emailing someone) — without the producer needing to know any consumer exists.
+A lightweight, pluggable, **in-process** event bus for the gourdian ecosystem. It decouples producers of state changes (e.g. a service assigning a role) from consumers that react to them (`graudit` recording it, `grcache` invalidating a related tag, a future notification system emailing someone) — without the producer needing to know any consumer exists.
 
 grevents is explicitly **not** an attempt to replace Kafka, NATS, or RabbitMQ. It runs entirely within a single process's memory — see [Delivery Guarantees](#-delivery-guarantees) before assuming more than that.
 
@@ -24,7 +24,7 @@ together:
   tamper-evident audit log; publishes an `"audit.recorded"` event through
   grevents on every successful write.
 - [grpolicy](https://github.com/gourdian25/grpolicy) — attribute-based
-  policy evaluation (RBAC/ABAC), independent of any notion of "user" or
+  policy evaluation, independent of any notion of "user" or
   "role".
 - [grnoti](https://github.com/gourdian25/grnoti) — a push-notification
   service (FCM dispatch, idempotent event processing, device-token
