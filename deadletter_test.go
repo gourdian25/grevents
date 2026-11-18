@@ -5,7 +5,11 @@ package grevents_test
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gourdian25/grevents"
 )
@@ -116,5 +120,144 @@ func TestMemoryDeadLetterSinkCloseIsNoop(t *testing.T) {
 	}
 	if err := sink.Close(); err != nil {
 		t.Fatalf("second Close: %v, want nil", err)
+	}
+}
+
+// keepOpenSink lets a test List the entries after Bus.Close has closed the
+// sink it wraps.
+type keepOpenSink struct{ grevents.DeadLetterSink }
+
+func (keepOpenSink) Close() error { return nil }
+
+// TestDeadLetterAttemptsWhenCloseInterruptsBackoff: Close cutting a
+// retry's backoff short dead-letters the pair with the invocations
+// actually made, not WithRetry's maxAttempts (v0.2.1 recorded 5 here).
+func TestDeadLetterAttemptsWhenCloseInterruptsBackoff(t *testing.T) {
+	sink := grevents.NewMemoryDeadLetterSink(10)
+	bus, err := grevents.NewBus(
+		grevents.WithAsync(4, grevents.OverflowBlock),
+		grevents.WithRetry(5, time.Hour), // the first backoff draws from [0, 1h]: Close interrupts it
+		grevents.WithDeadLetterSink(keepOpenSink{sink}),
+	)
+	if err != nil {
+		t.Fatalf("NewBus: %v", err)
+	}
+	var calls atomic.Int32
+	first := make(chan struct{})
+	var once sync.Once
+	if _, err := bus.Subscribe("topic", func(context.Context, grevents.Event) error {
+		calls.Add(1)
+		once.Do(func() { close(first) })
+		return errors.New("boom")
+	}); err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	if err := bus.Publish(context.Background(), grevents.Event{Topic: "topic"}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	<-first
+	time.Sleep(50 * time.Millisecond) // into the backoff sleep
+	if err := bus.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	entries, _ := sink.List(context.Background(), 0)
+	if len(entries) != 1 {
+		t.Fatalf("dead-letter entries = %d, want 1", len(entries))
+	}
+	if got, want := entries[0].Attempts, int(calls.Load()); got != want {
+		t.Fatalf("Attempts = %d, but the handler ran %d time(s)", got, want)
+	}
+}
+
+// closedSink records whether Record was called after Close, and closes
+// recorded on the first Record.
+type closedSink struct {
+	mu               sync.Mutex
+	closed           bool
+	recordAfterClose bool
+	recorded         chan struct{}
+	once             sync.Once
+}
+
+func (s *closedSink) Record(context.Context, grevents.Event, error, int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		s.recordAfterClose = true
+	}
+	s.once.Do(func() { close(s.recorded) })
+	return nil
+}
+func (s *closedSink) List(context.Context, int) ([]grevents.DeadLetterEntry, error) { return nil, nil }
+func (s *closedSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+	return nil
+}
+
+// warnSignal closes ch on the first Warn whose message contains want.
+type warnSignal struct {
+	want string
+	ch   chan struct{}
+	once sync.Once
+}
+
+func (l *warnSignal) Debug(string, ...any) {}
+func (l *warnSignal) Info(string, ...any)  {}
+func (l *warnSignal) Error(string, ...any) {}
+func (l *warnSignal) Warn(msg string, _ ...any) {
+	if strings.Contains(msg, l.want) {
+		l.once.Do(func() { close(l.ch) })
+	}
+}
+
+// TestDeadLetterNotRecordedOnClosedSink: a handler still running past the
+// drain timeout fails after Close has closed the sink; its pair must not
+// reach the closed sink, and is counted once (DroppedOnClose), not twice.
+func TestDeadLetterNotRecordedOnClosedSink(t *testing.T) {
+	sink := &closedSink{recorded: make(chan struct{})}
+	logger := &warnSignal{want: "dead letter after close", ch: make(chan struct{})}
+	bus, err := grevents.NewBus(
+		grevents.WithAsync(4, grevents.OverflowBlock),
+		grevents.WithDrainTimeout(50*time.Millisecond),
+		grevents.WithDeadLetterSink(sink),
+		grevents.WithLogger(logger),
+	)
+	if err != nil {
+		t.Fatalf("NewBus: %v", err)
+	}
+	started := make(chan struct{})
+	if _, err := bus.Subscribe("topic", func(context.Context, grevents.Event) error {
+		close(started)
+		time.Sleep(200 * time.Millisecond) // past the drain timeout
+		return errors.New("boom")
+	}); err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	if err := bus.Publish(context.Background(), grevents.Event{Topic: "topic"}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	<-started
+	if err := bus.Close(); !errors.Is(err, grevents.ErrDrainTimeout) {
+		t.Fatalf("Close = %v, want ErrDrainTimeout", err)
+	}
+	select {
+	case <-logger.ch: // logged, not recorded
+	case <-sink.recorded: // recorded: the check below says whether after Close
+	case <-time.After(2 * time.Second):
+		t.Fatal("the late failure never reached the dead-letter path")
+	}
+
+	sink.mu.Lock()
+	after := sink.recordAfterClose
+	sink.mu.Unlock()
+	if after {
+		t.Fatal("Record was called on a DeadLetterSink after Close closed it")
+	}
+	st, _ := bus.Stats(context.Background())
+	if st.DroppedOnClose != 1 || st.DeadLettered != 0 {
+		t.Fatalf("DroppedOnClose=%d DeadLettered=%d, want 1 and 0 (counted once)", st.DroppedOnClose, st.DeadLettered)
 	}
 }

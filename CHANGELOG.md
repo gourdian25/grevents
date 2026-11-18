@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-11-18
+
+### Fixed
+
+- A dead-letter entry's `Attempts` is now the number of invocations actually made. When `Close` cut a retry's backoff short, v0.2.1 recorded `WithRetry`'s `maxAttempts` instead: a handler that ran once under `WithRetry(5, …)` was dead-lettered with `Attempts: 5`. Test: `TestDeadLetterAttemptsWhenCloseInterruptsBackoff`.
+- `Record` no longer reaches a `DeadLetterSink` after `Close` has closed it. A handler still running past the drain timeout that then failed was recorded on the closed sink (a durable sink's client would already be gone) and counted in both `DroppedOnClose` and `DeadLettered`. It is now logged at `Warn` and counted once, in `DroppedOnClose`; `Close` waits for a `Record` already in progress. Test: `TestDeadLetterNotRecordedOnClosedSink`.
+
 ## [0.2.1] - 2026-11-08
 
 ### Changed

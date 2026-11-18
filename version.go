@@ -3,4 +3,4 @@
 package grevents
 
 // Version is the semantic version of this module, matching its most recent git tag.
-var Version = "v0.2.1"
+var Version = "v0.2.2"
