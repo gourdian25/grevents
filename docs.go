@@ -110,6 +110,13 @@
 // and once the buffer is at capacity, each new dead-lettered event
 // silently overwrites the oldest entry.
 //
+// Close also dead-letters a pair whose retry backoff it cuts short; the
+// entry's Attempts is the number of invocations actually made, which can
+// be fewer than WithRetry's maxAttempts. The sink is closed last, and no
+// Record reaches it after its Close: a handler still running past the
+// drain timeout that then fails is logged, not recorded (DroppedOnClose
+// already counts it), and Close waits for a Record already in progress.
+//
 // # Shutdown
 //
 // Close stops accepting new Publish and Subscribe calls immediately

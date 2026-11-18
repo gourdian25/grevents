@@ -123,9 +123,11 @@ func (b *eventBus) deliverWithRetry(event Event, sub *subscription) {
 	chain := b.buildChain(sub.handler)
 	ctx := context.Background() // async delivery outlives the originating Publish call's context
 	var lastErr error
+	attempts := 0 // invocations actually made: Close can stop the loop before maxAttempts
 
 retryLoop:
 	for attempt := 0; attempt < b.retry.maxAttempts; attempt++ {
+		attempts++
 		err := invokeHandler(ctx, chain, event, b.logger)
 		if err == nil {
 			b.st.delivered.Add(1)
@@ -151,8 +153,26 @@ retryLoop:
 		}
 	}
 
+	b.deadLetter(event, lastErr, attempts)
+}
+
+// deadLetter hands one exhausted (or Close-interrupted) pair to the
+// sink, unless Close has already closed it. That happens only to a
+// delivery still running past the drain timeout, which Close already
+// counted in DroppedOnClose, so it is logged and not counted again.
+func (b *eventBus) deadLetter(event Event, lastErr error, attempts int) {
+	b.sinkMu.RLock()
+	defer b.sinkMu.RUnlock()
+	if b.sinkClosed {
+		func() {
+			defer func() { _ = recover() }() // a panicking Logger must not crash this delivery goroutine
+			b.logger.Warn("grevents: dead letter after close, not recorded",
+				"topic", event.Topic, "attempts", attempts)
+		}()
+		return
+	}
 	b.st.deadLettered.Add(1)
-	recordDeadLetter(b.dlqSink, b.logger, event, lastErr, b.retry.maxAttempts)
+	recordDeadLetter(b.dlqSink, b.logger, event, lastErr, attempts)
 }
 
 // drainQueueCount non-blockingly counts and discards whatever is left in

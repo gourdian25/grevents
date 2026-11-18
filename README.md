@@ -197,7 +197,7 @@ bus, _ := grevents.NewBus(
 )
 ```
 
-`WithRetry(maxAttempts, baseBackoff)` retries a failed async handler with Full Jitter exponential backoff (`sleep = random(0, min(cap, base*2^attempt))`), capped at a fixed internal ceiling. Once `maxAttempts` is exhausted, the `(event, subscriber)` pair is handed to the configured `DeadLetterSink` — the default in-memory implementation is a capacity-bounded ring buffer: a best-effort recent-history buffer, explicitly **not** a durable audit log.
+`WithRetry(maxAttempts, baseBackoff)` retries a failed async handler with Full Jitter exponential backoff (`sleep = random(0, min(cap, base*2^attempt))`), capped at a fixed internal ceiling. Once `maxAttempts` is exhausted, or `Close` cuts a backoff short, the `(event, subscriber)` pair is handed to the configured `DeadLetterSink`, with `Attempts` set to the invocations actually made. No `Record` reaches the sink after `Close` has closed it: a handler still running past the drain timeout is counted in `DroppedOnClose` instead — the default in-memory implementation is a capacity-bounded ring buffer: a best-effort recent-history buffer, explicitly **not** a durable audit log.
 
 ```go
 entries, _ := dlq.List(context.Background(), 0) // 0 = all entries, oldest first
@@ -253,7 +253,7 @@ make bench           # sync vs async throughput, middleware chain cost
 make coverage-check  # root package must meet a 95% coverage threshold
 ```
 
-Current root-package coverage is **100.0%**, verified via `make coverage-check` on 2026-07-22 — comfortably above the 95% gate that command enforces.
+Current root-package coverage is **100.0%**, verified via `make coverage-check` on 2026-11-18 — comfortably above the 95% gate that command enforces.
 
 [`contract_bus_test.go`](contract_bus_test.go) is the primary test artifact — a shared behavioral test suite (`TestBus_Contract`) covering sync delivery, async delivery with retry and dead-lettering, all three overflow strategies under genuine concurrent load, panic recovery, middleware ordering, and `Close` draining both within and past its timeout. It was originally a separate `conformance` package (importable so a hypothetical future `Bus` implementation could reuse it) but has since been folded directly into the root package's own tests for consistency with the rest of the gourdian ecosystem.
 
@@ -261,24 +261,24 @@ Current root-package coverage is **100.0%**, verified via `make coverage-check` 
 
 [`bench_test.go`](bench_test.go) measures `Publish` throughput (sync inline delivery vs. async enqueue-only, per [Architecture](#-architecture)) and per-call middleware-chain overhead, all with no-op handlers. Async numbers measure enqueue latency only, not end-to-end delivery — that is the entire point of async mode.
 
-Captured with `make bench` (`go test -bench=. -benchmem -run=^$ ./...`) on 2026-07-22, Apple M4 (`GOARCH=arm64`, `GOOS=darwin`, `go1.26.5`):
+Captured with `go test -bench=. -benchmem -benchtime=3s -run=^$ .` on 2026-11-18, Apple M4 (`GOARCH=arm64`, `GOOS=darwin`, `go1.27.3`), v0.2.2:
 
 ```
 goos: darwin
 goarch: arm64
 pkg: github.com/gourdian25/grevents
 cpu: Apple M4
-BenchmarkPublish_Sync_1Subscriber-10           20988421          55.77 ns/op        8 B/op        1 allocs/op
-BenchmarkPublish_Sync_10Subscribers-10          7290680         165.4 ns/op        80 B/op        1 allocs/op
-BenchmarkPublish_Sync_100Subscribers-10          913363          1232 ns/op       896 B/op        1 allocs/op
-BenchmarkPublish_Async_1Subscriber-10           1852308         644.3 ns/op       112 B/op        3 allocs/op
-BenchmarkPublish_Async_10Subscribers-10          390570          3187 ns/op      1204 B/op       21 allocs/op
-BenchmarkPublish_Async_100Subscribers-10          38434         32329 ns/op     11462 B/op      201 allocs/op
-BenchmarkMiddlewareChain_1-10                  15679492          81.05 ns/op       32 B/op        3 allocs/op
-BenchmarkMiddlewareChain_5-10                   8380032         140.5 ns/op      136 B/op        7 allocs/op
-BenchmarkMiddlewareChain_10-10                  5508847         216.5 ns/op      248 B/op       12 allocs/op
+BenchmarkPublish_Sync_1Subscriber-10         60165747       55.59 ns/op        8 B/op     1 allocs/op
+BenchmarkPublish_Sync_10Subscribers-10       21618136       166.2 ns/op       80 B/op     1 allocs/op
+BenchmarkPublish_Sync_100Subscribers-10       2799127        1284 ns/op      896 B/op     1 allocs/op
+BenchmarkPublish_Async_1Subscriber-10         5474908       656.8 ns/op      112 B/op     3 allocs/op
+BenchmarkPublish_Async_10Subscribers-10       1000000        3075 ns/op     1162 B/op    21 allocs/op
+BenchmarkPublish_Async_100Subscribers-10       117549       30513 ns/op    11296 B/op   201 allocs/op
+BenchmarkMiddlewareChain_1-10                49506339       72.45 ns/op       32 B/op     3 allocs/op
+BenchmarkMiddlewareChain_5-10                29953644       123.3 ns/op      136 B/op     7 allocs/op
+BenchmarkMiddlewareChain_10-10               19731739       186.8 ns/op      248 B/op    12 allocs/op
 PASS
-ok      github.com/gourdian25/grevents  14.435s
+ok      github.com/gourdian25/grevents  35.089s
 ```
 
 A few things the numbers show:

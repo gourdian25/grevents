@@ -206,8 +206,10 @@ type Middleware func(next HandlerFunc) HandlerFunc
 //     including every individual retry attempt in async mode, not just
 //     the first failure
 //   - DeadLettered: uint64 — incremented once per (event, subscriber)
-//     pair that exhausted its retry attempts and was handed to the
-//     DeadLetterSink
+//     pair handed to the DeadLetterSink: its retry attempts ran out, or
+//     Close cut its backoff short. A pair whose handler was still
+//     running when Close closed the sink is not handed over and is not
+//     counted here: DroppedOnClose already counts it
 //   - DroppedOnClose: uint64 — events still queued or in flight when
 //     Close returned, whether because its drain timeout was reached or
 //     because of the rare race-window sweep described on Bus.Close
@@ -248,6 +250,14 @@ type eventBus struct {
 	retry        retryConfig
 	dlqSink      DeadLetterSink
 	inFlight     atomic.Int64
+
+	// sinkMu orders every Record against the sink's Close: a delivery
+	// still running past the drain timeout must never reach a sink that
+	// has been closed (a durable one's client would already be gone).
+	// Record holds it shared, Close holds it exclusively and sets
+	// sinkClosed, so Close waits for a Record already in progress.
+	sinkMu     sync.RWMutex
+	sinkClosed bool
 }
 
 // NewBus constructs a Bus according to the supplied options.
@@ -376,6 +386,9 @@ func (b *eventBus) Close() error {
 		if b.dlqSink == nil {
 			return
 		}
+		b.sinkMu.Lock()
+		defer b.sinkMu.Unlock()
+		b.sinkClosed = true
 		// A misbehaving DeadLetterSink.Close must not crash whatever
 		// goroutine called Bus.Close (often the caller's own, via
 		// defer bus.Close()) — same panic-safety guarantee as every
